@@ -1,16 +1,42 @@
-# This is a sample Python script.
+# Include standard modules
+import argparse
+import tools.init_db
+import tools.databases
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+def initdb() :
+
+    initdb=tools.init_db.init_db()
+    gatherinfo = True
+
+    while (gatherinfo):
+        initdb.gatherinfo()
+        initdb.printinfo()
+        if input("Does the information are good (Yes/No): ") == "Yes":
+            gatherinfo = False
+
+    initdb.createinfra()
+
+def createsample() :
+    db=tools.databases.databases()
 
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+if __name__ == "__main__":
+    # Initiate the parser
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-V", "--version", help="show program version", action="store_true")
+    parser.add_argument("--init_db", help="Initialisation of the database", action="store_true")
+    parser.add_argument("--create_sample", help="Creation of sample data", action="store_true")
 
+    # Read arguments from the command line
+    args = parser.parse_args()
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
+    # Check for --version or -V
+    if args.version:
+        print("This is myprogram version 0.1")
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    if args.init_db :
+        initdb()
+
+    if args.create_sample :
+        createsample()
+
