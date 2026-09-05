@@ -1,6 +1,6 @@
 [project]
 name = "darkangel"
-version = "1.0.0"
+version = "1.1.0"
 description = "DarkAngel API service"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -11,8 +11,10 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-     "pytest>=8.0.0",
-     "httpx>=0.27.0",
+      "pytest>=8.0.0",
+      "httpx>=0.27.0",
+      "ruff>=0.11.0",
+      "mypy>=1.13.0",
 ]
 
 [project.scripts]
@@ -27,3 +29,20 @@ packages = ["src/darkangel"]
 
 [tool.uv]
 package = true
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.14"
+ignore_missing_imports = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

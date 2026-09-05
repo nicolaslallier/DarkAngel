@@ -2,13 +2,13 @@ import threading
 import time
 
 import httpx
-import uvicorn
 
 from darkangel.main import create_server
 
 
 def _free_port() -> int:
     import socket
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
@@ -83,7 +83,6 @@ class TestIntegration:
                 resp = client.get(f"http://127.0.0.1:{port}/openapi.json")
                 assert resp.status_code == 200
                 payload = resp.json()
-                assert payload["info"]["version"] == "1.0.0"
+                assert payload["info"]["version"] == "1.1.0"
         finally:
             t.join(timeout=1)
-

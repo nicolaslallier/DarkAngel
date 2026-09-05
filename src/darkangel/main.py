@@ -1,3 +1,5 @@
+from typing import Any
+
 import uvicorn
 
 from darkangel.api import app
@@ -6,10 +8,9 @@ from darkangel.api import app
 def create_server(
     host: str = "0.0.0.0",
     port: int = 8000,
-    *args,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
-    uvicorn.run(app, host=host, port=port, *args, **kwargs)
+    uvicorn.run(app, host=host, port=port, **kwargs)
 
 
 def main() -> None:
