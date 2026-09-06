@@ -19,6 +19,7 @@ dev = [
 
 [project.scripts]
 darkangel = "darkangel.main:main"
+darkangel-gui = "darkangel.gui.main:main"
 
 [build-system]
 requires = ["hatchling"]
