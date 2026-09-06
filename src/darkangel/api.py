@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-VERSION = "1.0.0"
+VERSION = "1.2.0"
 
 
 def health_payload() -> dict[str, str]:

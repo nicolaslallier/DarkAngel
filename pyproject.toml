@@ -1,11 +1,12 @@
 [project]
 name = "darkangel"
-version = "1.0.0"
+version = "1.2.0"
 description = "DarkAngel API service"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.115.0",
+    "pyside6>=6.7.0",
     "uvicorn[standard]>=0.32.0",
 ]
 
@@ -13,10 +14,12 @@ dependencies = [
 dev = [
      "pytest>=8.0.0",
      "httpx>=0.27.0",
+     "pytest-qt>=4.4.0",
 ]
 
 [project.scripts]
 darkangel = "darkangel.main:main"
+darkangel-gui = "darkangel.gui.main:main"
 
 [build-system]
 requires = ["hatchling"]

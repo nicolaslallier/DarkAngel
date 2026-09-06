@@ -4,6 +4,7 @@ import time
 import httpx
 import uvicorn
 
+from darkangel.api import VERSION
 from darkangel.main import create_server
 
 
@@ -83,7 +84,7 @@ class TestIntegration:
                 resp = client.get(f"http://127.0.0.1:{port}/openapi.json")
                 assert resp.status_code == 200
                 payload = resp.json()
-                assert payload["info"]["version"] == "1.0.0"
+                assert payload["info"]["version"] == VERSION
         finally:
             t.join(timeout=1)
 
