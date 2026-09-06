@@ -1,5 +1,4 @@
 import httpx
-
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QPushButton
@@ -13,9 +12,12 @@ pytestmark = pytest.mark.usefixtures("qtbot")
 
 class TestGuiSmoke:
     def test_window_builds_offscreen(self, qtbot) -> None:
-        api = ApiClient(base_url="http://127.0.0.1:9", transport=httpx.MockTransport(
-            lambda req: httpx.Response(200, json=health_payload())
-         ))
+        api = ApiClient(
+            base_url="http://127.0.0.1:9",
+            transport=httpx.MockTransport(
+                lambda req: httpx.Response(200, json=health_payload())
+            ),
+        )
         window = build_window(api)
         qtbot.addWidget(window)
         assert window.windowTitle() == "DarkAngel"
@@ -28,7 +30,9 @@ class TestGuiSmoke:
             seen.append(request.url.path)
             return httpx.Response(200, json=health_payload())
 
-        api = ApiClient(base_url="http://127.0.0.1:9", transport=httpx.MockTransport(handler))
+        api = ApiClient(
+            base_url="http://127.0.0.1:9", transport=httpx.MockTransport(handler)
+        )
         window = build_window(api)
         qtbot.addWidget(window)
         window.show()

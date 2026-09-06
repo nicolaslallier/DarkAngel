@@ -13,7 +13,9 @@ class TestApiClientPaths:
             seen.append(request.url.path)
             return httpx.Response(200, json=health_payload())
 
-        api = ApiClient(base_url="http://127.0.0.1:9", transport=httpx.MockTransport(handler))
+        api = ApiClient(
+            base_url="http://127.0.0.1:9", transport=httpx.MockTransport(handler)
+        )
         assert api.health() == health_payload()
         assert seen == ["/health"]
 
@@ -24,7 +26,9 @@ class TestApiClientPaths:
             seen.append(request.url.path)
             return httpx.Response(200, json=hello_payload())
 
-        api = ApiClient(base_url="http://127.0.0.1:9", transport=httpx.MockTransport(handler))
+        api = ApiClient(
+            base_url="http://127.0.0.1:9", transport=httpx.MockTransport(handler)
+        )
         assert api.hello() == hello_payload()
         assert seen == ["/"]
 
@@ -41,7 +45,9 @@ class TestApiClientErrors:
     def test_404_raises_apierror(self) -> None:
         api = ApiClient(
             base_url="http://127.0.0.1:9",
-            transport=httpx.MockTransport(lambda req: httpx.Response(404, json={"detail": "nope"})),
+            transport=httpx.MockTransport(
+                lambda req: httpx.Response(404, json={"detail": "nope"})
+            ),
         )
         with pytest.raises(ApiError):
             api.hello()
@@ -50,7 +56,9 @@ class TestApiClientErrors:
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("connection refused")
 
-        api = ApiClient(base_url="http://127.0.0.1:9", transport=httpx.MockTransport(handler))
+        api = ApiClient(
+            base_url="http://127.0.0.1:9", transport=httpx.MockTransport(handler)
+        )
         with pytest.raises(ApiError):
             api.hello()
 
