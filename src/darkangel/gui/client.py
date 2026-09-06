@@ -20,9 +20,13 @@ class ApiError(RuntimeError):
 
 @dataclass
 class ApiClient:
-    base_url: str = field(default_factory=lambda: os.environ.get(_ENV_API_URL, DEFAULT_BASE_URL))
+    base_url: str = field(
+        default_factory=lambda: os.environ.get(_ENV_API_URL, DEFAULT_BASE_URL)
+    )
     timeout: float = 5.0
-    transport: httpx.BaseTransport | None = field(default=None, repr=False, compare=False)
+    transport: httpx.BaseTransport | None = field(
+        default=None, repr=False, compare=False
+    )
 
     def health(self) -> dict[str, str]:
         return self._get("/health")
@@ -31,7 +35,9 @@ class ApiClient:
         return self._get("/")
 
     def _get(self, path: str) -> dict[str, str]:
-        with httpx.Client(base_url=self.base_url, timeout=self.timeout, transport=self.transport) as client:
+        with httpx.Client(
+            base_url=self.base_url, timeout=self.timeout, transport=self.transport
+        ) as client:
             try:
                 response = client.get(path)
                 response.raise_for_status()

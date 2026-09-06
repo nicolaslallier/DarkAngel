@@ -1,7 +1,6 @@
-import pytest
 from fastapi.testclient import TestClient
 
-from darkangel.api import app, create_app, health_payload, hello_payload, VERSION
+from darkangel.api import VERSION, app, create_app, health_payload, hello_payload
 
 
 class TestPureFunctions:
@@ -27,6 +26,7 @@ class TestPureFunctions:
 class TestCreateApp:
     def test_returns_fastapi_instance(self) -> None:
         from fastapi import FastAPI
+
         new_app = create_app()
         assert isinstance(new_app, FastAPI)
 
@@ -49,4 +49,3 @@ class TestCreateApp:
         resp = client.get("/openapi.json")
         assert resp.status_code == 200
         assert "paths" in resp.json()
-

@@ -2,7 +2,6 @@ import threading
 import time
 
 import httpx
-import uvicorn
 
 from darkangel.api import VERSION
 from darkangel.main import create_server
@@ -10,6 +9,7 @@ from darkangel.main import create_server
 
 def _free_port() -> int:
     import socket
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
@@ -87,4 +87,3 @@ class TestIntegration:
                 assert payload["info"]["version"] == VERSION
         finally:
             t.join(timeout=1)
-

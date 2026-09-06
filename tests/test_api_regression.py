@@ -29,4 +29,3 @@ class TestRegression:
     def test_unknown_route_is_404(self) -> None:
         resp = client.get("/nope")
         assert resp.status_code == 404
-
