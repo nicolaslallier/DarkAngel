@@ -31,3 +31,21 @@ packages = ["src/darkangel"]
 
 [tool.uv]
 package = true
+
+[tool.mypy]
+# `darkangel` is a src-layout namespace package: `mypy_path` points mypy at the
+# source root and `explicit_package_bases` stops mypy from also resolving the
+# package from the current working directory (no `__init__.py` by design).
+python_version = "3.14"
+mypy_path = ["src"]
+explicit_package_bases = true
+
+[tool.pytest.ini_options]
+# The `tests` package exposes shared fixtures to its siblings (`capabilities_fakes`);
+# adding the project root to `sys.path` lets `from tests.capabilities_fakes import ...`
+# resolve under pytest's rootdir-based collection.
+pythonpath = ["."]
+
+[tool.ruff.lint.isort]
+# Treat `tests` as first-party so the shared fixture module sorts cleanly.
+known-first-party = ["tests"]

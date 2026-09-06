@@ -40,9 +40,14 @@ class TestCreateApp:
         assert app.version == VERSION
 
     def test_routes_registered(self) -> None:
-        paths = {r.path for r in app.routes}
+        # Only APIRoute exposes .path; filter so the comprehension stays typed
+        # (Starlette types app.routes as a sequence of BaseRoute).
+        from fastapi.routing import APIRoute
+
+        paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
         assert "/" in paths
         assert "/health" in paths
+        assert "/capabilities" in paths
 
     def test_openapi_schema_served(self) -> None:
         client = TestClient(app)
