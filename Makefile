@@ -51,7 +51,7 @@ test-regression: install
 check: fmt lint typecheck test
 
 build: install
-	@$(PY) build
+	@$(PY) pyproject-build
 
 clean:
 	@rm -rf build dist *.egg-info .pytest_cache .ruff_cache .mypy_cache
