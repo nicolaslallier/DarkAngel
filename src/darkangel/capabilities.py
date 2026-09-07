@@ -1,22 +1,33 @@
 """Business capability access layer (Neo4j).
 
-Cognitive Architecture Management System - Feature 1.3.
+Cognitive Architecture Management System - Features 1.3 and 1.4.
 
 This module is the *pure* data boundary for the ``:Capability`` graph. It keeps
 all Neo4j interaction behind a small, fully typed surface so the graph logic can
 be exercised in isolation of a live database:
 
 - :func:`map_capability` turns one Cypher result row (a mapping with ``id``,
-    ``name`` and ``description``) into a validated :class:`Capability`.
+      ``name`` and ``description``) into a validated :class:`Capability`.
 - :class:`CapabilityStore` runs the canonical query - a Neo4j ``GqlError``
-    (driver/transaction error in the v6 hierarchy) bubbles up untouched so the
-    API layer can translate it into a ``500``.
+      (driver/transaction error in the v6 hierarchy) bubbles up untouched so the
+      API layer can translate it into a ``500``.
 - :func:`build_capability_store` is the *only* place that touches the concrete
-    ``neo4j`` driver; the store itself works against a structural ``Protocol``,
-    so tests can supply a fake driver instead of a running graph.
+      ``neo4j`` driver; the store itself works against a structural ``Protocol``,
+      so tests can supply a fake driver instead of a running graph.
 
-The ``level`` property is deliberately ignored here - Feature 1.3 exposes a flat
-list of capabilities, not the hierarchy.
+The ``level`` property is deliberately ignored by :class:`Capability` (Feature
+1.3 exposes a flat list, not the hierarchy), but the write layer of Feature 1.4
+persists it on the node and treats ``id``/``level`` as structural anchors.
+
+Feature 1.4 adds the write operations (Create / Update / Delete). Each is a
+fixed, well-ordered sequence of Cypher statements so the graph logic stays
+deterministic and testable against a fake driver:
+
+- ``create`` pre-checks ``id`` uniqueness (BR-01) before inserting.
+- ``update`` only ``SET``s ``name``/``description`` (BR-03); ``id``/``level``
+      are rejected upstream by the API layer (BR-02).
+- ``delete`` refuses a node that still owns sub-capabilities (BR-04) and then
+      runs a ``DETACH DELETE`` so no orphaned links linger (BR-05).
 """
 
 import os
@@ -28,6 +39,44 @@ from pydantic import BaseModel, ConfigDict
 
 # Feature 1.3: flat list of every :Capability node, in the requested shape only.
 CAPABILITIES_QUERY = "MATCH (c:Capability) RETURN c.id AS id, c.name AS name, c.description AS description"
+
+# Feature 1.4: single-node fetch, including the structural ``level`` anchor that
+# Feature 1.3 deliberately hid from the flat response.
+GET_CAPABILITY_QUERY = "MATCH (c:Capability {id: $id}) RETURN c.id AS id, c.name AS name, c.description AS description, c.level AS level"
+
+# Feature 1.4 uniqueness pre-check (BR-01): a count query whose non-zero result
+# means the ``id`` is already taken.
+EXISTS_CAPABILITY_QUERY = "MATCH (c:Capability {id: $id}) RETURN count(c) AS count"
+
+# Feature 1.4 insert.
+CREATE_CAPABILITY_QUERY = "CREATE (c:Capability {id: $id, name: $name, description: $description, level: $level})"
+
+# Feature 1.4 update (BR-03): touch only the editable properties.
+UPDATE_CAPABILITY_QUERY = "MATCH (c:Capability {id: $id}) SET c.name = $name, c.description = $description"
+
+# Feature 1.4 child check (BR-04): outgoing HAS_SUB_CAPABILITY links.
+HAS_CHILDREN_QUERY = "MATCH (c:Capability {id: $id})-[:HAS_SUB_CAPABILITY]->() RETURN count(c) AS count"
+
+# Feature 1.4 delete (BR-05): detach first so no link dangles.
+DELETE_CAPABILITY_QUERY = "MATCH (c:Capability {id: $id}) DETACH DELETE c"
+
+
+class CapabilityError(Exception):
+     """Base class for the domain-level failures of the graph write layer."""
+
+
+class CapabilityNotFoundError(CapabilityError):
+     """The requested ``id`` does not exist (Feature 1.4 -> ``404``)."""
+
+
+class CapabilityConflictError(CapabilityError):
+     """A ``id`` already exists, or the node still owns sub-capabilities
+    (Feature 1.4 -> ``409``)."""
+
+
+class ImmutableFieldError(CapabilityError):
+     """An attempt to mutate the structural ``id``/``level`` anchors
+    (Feature 1.4 BR-02 -> ``400``)."""
 
 # --- Environment configuration -----------------------------------------------
 # No hard-coded database coordinate: the store location and credentials are read
@@ -56,6 +105,45 @@ class Capability(BaseModel):
     description: str
 
 
+class CapabilityWithLevel(Capability):
+    """Full node shape including the structural ``level`` anchor.
+
+    Used by the write layer (Feature 1.4) where ``level`` must round-trip,
+    unlike the flat :class:`Capability` response of Feature 1.3.
+    """
+
+    level: str
+
+
+class CapabilityCreate(BaseModel):
+    """Create payload (Feature 1.4 section 3 / REQ-1.4.1, REQ-1.4.2).
+
+    ``id`` and ``level`` are required structural anchors; ``extra`` is forbidden
+    so the contract stays strict.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    description: str
+    level: str
+
+
+class CapabilityUpdate(BaseModel):
+    """Update payload (Feature 1.4 section 3 / BR-02, BR-03, REQ-1.4.3, REQ-1.4.4).
+
+    Only the editable fields are accepted. ``extra = "forbid"`` turns any attempt
+    to modify the immutable ``id``/``level`` anchors into a validation error,
+    which the API layer translates into a ``400``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    description: str | None = None
+
+
 class _Result(Protocol):
     """Structural view of a Neo4j :class:`~neo4j.Result` (v6 ``.data()`` shape)."""
 
@@ -63,9 +151,9 @@ class _Result(Protocol):
 
 
 class _Session(Protocol):
-    """Structural view of a Neo4j session used to run the capability query."""
+    """Structural view of a Neo4j session; ``run`` takes a query plus optional named parameters."""
 
-    def run(self, query: str) -> _Result: ...
+    def run(self, query: str, **parameters: Any) -> _Result: ...
 
 
 class _Driver(Protocol):
@@ -108,6 +196,89 @@ class CapabilityStore:
         session = self._driver.session()
         result = session.run(CAPABILITIES_QUERY)
         return [map_capability(row) for row in result.data()]
+
+    def get(self, capability_id: str) -> CapabilityWithLevel | None:
+        """Fetch a single node by ``id`` (including ``level``), or ``None``.
+
+        Feature 1.4 uses this to decide ``404`` vs. ``200``/``204``. A database
+        failure propagates untouched.
+        """
+        session = self._driver.session()
+        result = session.run(GET_CAPABILITY_QUERY, id=capability_id)
+        rows = result.data()
+        if not rows:
+            return None
+        row = rows[0]
+        return CapabilityWithLevel(
+            id=str(row["id"]),
+            name=str(row["name"]),
+            description=str(row["description"]),
+            level=str(row["level"]),
+        )
+
+    def create(self, payload: CapabilityCreate) -> CapabilityWithLevel:
+        """Insert a new ``:Capability`` node, pre-checking ``id`` uniqueness.
+
+        BR-01: an already-taken ``id`` raises :class:`CapabilityConflictError`.
+        BR-02: ``id``/``level`` come from the create payload only.
+        """
+        session = self._driver.session()
+        present = bool(session.run(EXISTS_CAPABILITY_QUERY, id=payload.id).data()[0]["count"])
+        if present:
+            raise CapabilityConflictError(payload.id)
+        session.run(
+            CREATE_CAPABILITY_QUERY,
+            id=payload.id,
+            name=payload.name,
+            description=payload.description,
+            level=payload.level,
+        )
+        return CapabilityWithLevel(
+            id=payload.id,
+            name=payload.name,
+            description=payload.description,
+            level=payload.level,
+        )
+
+    def update(self, capability_id: str, payload: CapabilityUpdate) -> CapabilityWithLevel:
+        """Replace ``name``/``description`` only (BR-03).
+
+        A missing node raises :class:`CapabilityNotFoundError`. The structural
+        anchors are never touched by this query.
+        """
+        session = self._driver.session()
+        current = session.run(GET_CAPABILITY_QUERY, id=capability_id).data()
+        if not current:
+            raise CapabilityNotFoundError(capability_id)
+        merged = dict(current[0])
+        name = payload.name if payload.name is not None else merged["name"]
+        description = (
+            payload.description if payload.description is not None else merged["description"]
+        )
+        session.run(UPDATE_CAPABILITY_QUERY, id=capability_id, name=name, description=description)
+        return CapabilityWithLevel(
+            id=str(merged["id"]),
+            name=str(name),
+            description=str(description),
+            level=str(merged["level"]),
+        )
+
+    def delete(self, capability_id: str) -> None:
+        """Delete a node after verifying it owns no sub-capabilities.
+
+        BR-04: a node with ``HAS_SUB_CAPABILITY`` links raises
+        :class:`CapabilityConflictError`. BR-05: the surviving delete detaches
+        first so no link dangles.
+        """
+        session = self._driver.session()
+        current = session.run(GET_CAPABILITY_QUERY, id=capability_id).data()
+        if not current:
+            raise CapabilityNotFoundError(capability_id)
+        children = session.run(HAS_CHILDREN_QUERY, id=capability_id).data()
+        has_children = bool(children and children[0]["count"])
+        if has_children:
+            raise CapabilityConflictError(capability_id)
+        session.run(DELETE_CAPABILITY_QUERY, id=capability_id)
 
 
 def load_neo4j_settings() -> tuple[str, str, str]:
