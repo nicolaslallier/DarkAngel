@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from neo4j.exceptions import GqlError
@@ -9,12 +10,16 @@ from darkangel.capabilities import (
     Capability,
     CapabilityConflictError,
     CapabilityCreate,
+    CapabilityDuplicateIdError,
     CapabilityNotFoundError,
     CapabilityStore,
     CapabilityUpdate,
     CapabilityWithLevel,
     build_capability_store,
 )
+
+# Feature 1.4 BR-02: the structural anchors a client may never send on an update.
+_IMMUTABLE_FIELDS = frozenset({"id", "level"})
 
 VERSION = "1.4.0"
 
@@ -41,9 +46,20 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(CapabilityConflictError)
     async def _conflict(request: Request, exc: CapabilityConflictError) -> JSONResponse:
+        """Both 409 causes share this handler, so name the one that fired.
+
+        BR-01 (duplicate ``id`` on create) and BR-04 (delete of a parent) are
+        distinct failures; reporting the delete message for either one tells the
+        caller the node has children when it does not.
+        """
+        capability_id = exc.args[0] if exc.args else ""
+        if isinstance(exc, CapabilityDuplicateIdError):
+            detail = f"Conflict: Capability with ID {capability_id} already exists."
+        else:
+            detail = "Conflict: Capability has children and cannot be deleted."
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
-            content={"detail": "Conflict: Capability has children and cannot be deleted."},
+            content={"detail": detail},
         )
 
     @app.exception_handler(CapabilityNotFoundError)
@@ -55,7 +71,23 @@ def create_app() -> FastAPI:
         )
 
     @app.exception_handler(RequestValidationError)
-    async def _immutable(request: Request, exc: RequestValidationError) -> JSONResponse:
+    async def _immutable(request: Request, exc: RequestValidationError) -> Response:
+        """Answer ``400`` for BR-02 only, and leave every other 422 intact.
+
+        ``CapabilityUpdate`` forbids extra fields, so an attempt to send the
+        immutable ``id``/``level`` arrives as an ``extra_forbidden`` error. Any
+        other validation failure - a missing field, a wrong type, a bad path
+        parameter, on this route or any other - keeps FastAPI's ``422`` and its
+        field-level detail, which is the only way a client can tell what to fix.
+        """
+        immutable_touched = any(
+            error.get("type") == "extra_forbidden"
+            and error.get("loc")
+            and error["loc"][-1] in _IMMUTABLE_FIELDS
+            for error in exc.errors()
+        )
+        if not immutable_touched:
+            return await request_validation_exception_handler(request, exc)
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"detail": "Invalid input: ID and Level are immutable."},
