@@ -88,13 +88,16 @@ class TestCreateCapabilityEndpoint:
         assert response.status_code == 500
         assert "Neo4j" in response.json()["detail"]
 
-    def test_missing_required_field_returns_400(self) -> None:
+    def test_missing_required_field_returns_422_with_field_detail(self) -> None:
+        # A missing field is not a BR-02 immutability violation: the client must
+        # keep FastAPI's 422 and learn *which* field is wrong.
         with client_graph_scope() as client:
             response = client.post(
                 "/capabilities",
                 json={"id": "NEW", "name": "n", "description": "d"},
              )
-        assert response.status_code == 400
+        assert response.status_code == 422
+        assert any("level" in error["loc"] for error in response.json()["detail"])
 
 
 class TestUpdateCapabilityEndpoint:

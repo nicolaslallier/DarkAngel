@@ -94,9 +94,12 @@ class FakeGraph:
         node["name"] = str(parameters["name"])
         node["description"] = str(parameters["description"])
 
-    def delete(self, capability_id: str) -> None:
-        self.nodes.pop(capability_id, None)
-        self.children.discard(capability_id)
+    def delete(self, capability_id: str) -> int:
+        """Mirror the conditional Cypher delete: a parent is left untouched."""
+        if capability_id not in self.nodes or capability_id in self.children:
+            return 0
+        self.nodes.pop(capability_id)
+        return 1
 
 
 class FakeNeo4jSession:
@@ -104,6 +107,7 @@ class FakeNeo4jSession:
         self._graph = graph
         self._run_error = run_error
         self.query: str | None = None
+        self.closed = False
 
     def run(self, query: str, **parameters: Any) -> FakeNeo4jResult:
         self.query = query
@@ -125,9 +129,11 @@ class FakeNeo4jSession:
         if query == HAS_CHILDREN_QUERY:
             return FakeNeo4jResult([{"count": graph.has_children_count(str(parameters.get("id")))}])
         if query == DELETE_CAPABILITY_QUERY:
-            graph.delete(str(parameters.get("id")))
-            return FakeNeo4jResult([])
+            return FakeNeo4jResult([{"deleted": graph.delete(str(parameters.get("id")))}])
         raise ValueError(f"Unknown capability query: {query}")
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class FakeNeo4jDriver:

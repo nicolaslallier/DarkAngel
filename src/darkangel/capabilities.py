@@ -23,18 +23,26 @@ Feature 1.4 adds the write operations (Create / Update / Delete). Each is a
 fixed, well-ordered sequence of Cypher statements so the graph logic stays
 deterministic and testable against a fake driver:
 
-- ``create`` pre-checks ``id`` uniqueness (BR-01) before inserting.
+- ``create`` pre-checks ``id`` uniqueness (BR-01) before inserting, backed by
+      the ``:Capability(id)`` constraint of :meth:`CapabilityStore.ensure_schema`
+      so the rule survives concurrent inserts.
 - ``update`` only ``SET``s ``name``/``description`` (BR-03); ``id``/``level``
       are rejected upstream by the API layer (BR-02).
-- ``delete`` refuses a node that still owns sub-capabilities (BR-04) and then
-      runs a ``DETACH DELETE`` so no orphaned links linger (BR-05).
+- ``delete`` refuses a node that still owns sub-capabilities (BR-04); the
+      childless condition is part of the ``DETACH DELETE`` itself, so no link is
+      ever silently cut (BR-05).
+
+Every session is opened in a ``with`` block: ``neo4j`` returns the borrowed
+connection to the pool on ``close()`` only.
 """
 
 import os
 from collections.abc import Mapping
+from contextlib import closing
 from typing import Any, Protocol
 
 from neo4j import GraphDatabase
+from neo4j.exceptions import ConstraintError
 from pydantic import BaseModel, ConfigDict
 
 # Feature 1.3: flat list of every :Capability node, in the requested shape only.
@@ -57,8 +65,22 @@ UPDATE_CAPABILITY_QUERY = "MATCH (c:Capability {id: $id}) SET c.name = $name, c.
 # Feature 1.4 child check (BR-04): outgoing HAS_SUB_CAPABILITY links.
 HAS_CHILDREN_QUERY = "MATCH (c:Capability {id: $id})-[:HAS_SUB_CAPABILITY]->() RETURN count(c) AS count"
 
-# Feature 1.4 delete (BR-05): detach first so no link dangles.
-DELETE_CAPABILITY_QUERY = "MATCH (c:Capability {id: $id}) DETACH DELETE c"
+# Feature 1.4 delete (BR-04 / BR-05): the childless condition lives *inside* the
+# delete so the guard cannot go stale between the check and the write, and the
+# returned counter tells the caller whether the node actually went away.
+DELETE_CAPABILITY_QUERY = (
+    "MATCH (c:Capability {id: $id}) "
+    "WHERE NOT (c)-[:HAS_SUB_CAPABILITY]->() "
+    "DETACH DELETE c "
+    "RETURN count(*) AS deleted"
+)
+
+# Feature 1.4 schema (BR-01): the uniqueness guarantee the ``create`` pre-check
+# cannot provide on its own. Idempotent, so it is safe to re-run at any time.
+CAPABILITY_ID_CONSTRAINT_QUERY = (
+    "CREATE CONSTRAINT capability_id_unique IF NOT EXISTS "
+    "FOR (c:Capability) REQUIRE c.id IS UNIQUE"
+)
 
 
 class CapabilityError(Exception):
@@ -72,6 +94,14 @@ class CapabilityNotFoundError(CapabilityError):
 class CapabilityConflictError(CapabilityError):
      """A ``id`` already exists, or the node still owns sub-capabilities
     (Feature 1.4 -> ``409``)."""
+
+
+class CapabilityDuplicateIdError(CapabilityConflictError):
+     """The requested ``id`` is already taken (Feature 1.4 BR-01 -> ``409``)."""
+
+
+class CapabilityHasChildrenError(CapabilityConflictError):
+     """The node still owns sub-capabilities (Feature 1.4 BR-04 -> ``409``)."""
 
 
 class ImmutableFieldError(CapabilityError):
@@ -151,9 +181,16 @@ class _Result(Protocol):
 
 
 class _Session(Protocol):
-    """Structural view of a Neo4j session; ``run`` takes a query plus optional named parameters."""
+    """Structural view of a Neo4j session; ``run`` takes a query plus optional named parameters.
+
+    ``close`` is part of the surface because ``neo4j`` returns the borrowed
+    connection to the pool there and nowhere else (``__del__`` only warns), so
+    every call site below wraps the session in :func:`contextlib.closing`.
+    """
 
     def run(self, query: str, **parameters: Any) -> _Result: ...
+
+    def close(self) -> None: ...
 
 
 class _Driver(Protocol):
@@ -162,6 +199,21 @@ class _Driver(Protocol):
     """
 
     def session(self) -> _Session: ...
+
+
+def _require_property(row: Mapping[str, Any], key: str) -> str:
+    """Read one node property as ``str``, refusing a Cypher ``null``.
+
+    A property absent from the node comes back as ``None``; blindly casting it
+    would hand the caller the literal string ``"None"`` as if it were real data
+    (a node predating Feature 1.4 carries no ``level``, for instance). Raising
+    instead surfaces the malformed row as a ``500``, consistent with
+    :func:`map_capability`.
+    """
+    value = row[key]
+    if value is None:
+        raise ValueError(f"Capability property {key!r} is null on the node")
+    return str(value)
 
 
 def map_capability(record: Mapping[str, Any]) -> Capability:
@@ -192,10 +244,19 @@ class CapabilityStore:
     def __init__(self, driver: _Driver) -> None:
         self._driver = driver
 
+    def ensure_schema(self) -> None:
+        """Install the ``:Capability(id)`` uniqueness constraint (BR-01).
+
+        Idempotent. Without it the ``create`` pre-check is only advisory: two
+        concurrent inserts can both pass it and leave duplicate nodes behind.
+        """
+        with closing(self._driver.session()) as session:
+            session.run(CAPABILITY_ID_CONSTRAINT_QUERY)
+
     def all(self) -> list[Capability]:
-        session = self._driver.session()
-        result = session.run(CAPABILITIES_QUERY)
-        return [map_capability(row) for row in result.data()]
+        with closing(self._driver.session()) as session:
+            result = session.run(CAPABILITIES_QUERY)
+            return [map_capability(row) for row in result.data()]
 
     def get(self, capability_id: str) -> CapabilityWithLevel | None:
         """Fetch a single node by ``id`` (including ``level``), or ``None``.
@@ -203,36 +264,44 @@ class CapabilityStore:
         Feature 1.4 uses this to decide ``404`` vs. ``200``/``204``. A database
         failure propagates untouched.
         """
-        session = self._driver.session()
-        result = session.run(GET_CAPABILITY_QUERY, id=capability_id)
-        rows = result.data()
+        with closing(self._driver.session()) as session:
+            rows = session.run(GET_CAPABILITY_QUERY, id=capability_id).data()
         if not rows:
             return None
         row = rows[0]
         return CapabilityWithLevel(
-            id=str(row["id"]),
-            name=str(row["name"]),
-            description=str(row["description"]),
-            level=str(row["level"]),
+            id=_require_property(row, "id"),
+            name=_require_property(row, "name"),
+            description=_require_property(row, "description"),
+            level=_require_property(row, "level"),
         )
 
     def create(self, payload: CapabilityCreate) -> CapabilityWithLevel:
         """Insert a new ``:Capability`` node, pre-checking ``id`` uniqueness.
 
-        BR-01: an already-taken ``id`` raises :class:`CapabilityConflictError`.
+        BR-01: an already-taken ``id`` raises :class:`CapabilityDuplicateIdError`.
+        The pre-check is the fast path; the ``:Capability(id)`` constraint
+        installed by :meth:`ensure_schema` is what actually makes the rule hold
+        when two inserts race, so its violation maps to the same error.
         BR-02: ``id``/``level`` come from the create payload only.
         """
-        session = self._driver.session()
-        present = bool(session.run(EXISTS_CAPABILITY_QUERY, id=payload.id).data()[0]["count"])
-        if present:
-            raise CapabilityConflictError(payload.id)
-        session.run(
-            CREATE_CAPABILITY_QUERY,
-            id=payload.id,
-            name=payload.name,
-            description=payload.description,
-            level=payload.level,
-        )
+        with closing(self._driver.session()) as session:
+            present = bool(session.run(EXISTS_CAPABILITY_QUERY, id=payload.id).data()[0]["count"])
+            if present:
+                raise CapabilityDuplicateIdError(payload.id)
+            try:
+                # ``.data()`` drains the (empty) stream so a constraint violation
+                # surfaces here rather than later, when the session closes and
+                # the error would no longer be distinguishable from a ``500``.
+                session.run(
+                    CREATE_CAPABILITY_QUERY,
+                    id=payload.id,
+                    name=payload.name,
+                    description=payload.description,
+                    level=payload.level,
+                ).data()
+            except ConstraintError as exc:
+                raise CapabilityDuplicateIdError(payload.id) from exc
         return CapabilityWithLevel(
             id=payload.id,
             name=payload.name,
@@ -246,39 +315,52 @@ class CapabilityStore:
         A missing node raises :class:`CapabilityNotFoundError`. The structural
         anchors are never touched by this query.
         """
-        session = self._driver.session()
-        current = session.run(GET_CAPABILITY_QUERY, id=capability_id).data()
-        if not current:
-            raise CapabilityNotFoundError(capability_id)
-        merged = dict(current[0])
-        name = payload.name if payload.name is not None else merged["name"]
-        description = (
-            payload.description if payload.description is not None else merged["description"]
-        )
-        session.run(UPDATE_CAPABILITY_QUERY, id=capability_id, name=name, description=description)
+        with closing(self._driver.session()) as session:
+            current = session.run(GET_CAPABILITY_QUERY, id=capability_id).data()
+            if not current:
+                raise CapabilityNotFoundError(capability_id)
+            merged = dict(current[0])
+            name = (
+                payload.name if payload.name is not None else _require_property(merged, "name")
+            )
+            description = (
+                payload.description
+                if payload.description is not None
+                else _require_property(merged, "description")
+            )
+            session.run(
+                UPDATE_CAPABILITY_QUERY, id=capability_id, name=name, description=description
+            )
         return CapabilityWithLevel(
-            id=str(merged["id"]),
-            name=str(name),
-            description=str(description),
-            level=str(merged["level"]),
+            id=_require_property(merged, "id"),
+            name=name,
+            description=description,
+            level=_require_property(merged, "level"),
         )
 
     def delete(self, capability_id: str) -> None:
         """Delete a node after verifying it owns no sub-capabilities.
 
         BR-04: a node with ``HAS_SUB_CAPABILITY`` links raises
-        :class:`CapabilityConflictError`. BR-05: the surviving delete detaches
+        :class:`CapabilityHasChildrenError`. BR-05: the surviving delete detaches
         first so no link dangles.
+
+        The pre-check exists to tell ``404`` from ``409``; the childless
+        condition is repeated *inside* :data:`DELETE_CAPABILITY_QUERY` so a
+        child attached in the meantime cannot be silently detached. A zero
+        counter therefore means the node grew a child mid-flight.
         """
-        session = self._driver.session()
-        current = session.run(GET_CAPABILITY_QUERY, id=capability_id).data()
-        if not current:
-            raise CapabilityNotFoundError(capability_id)
-        children = session.run(HAS_CHILDREN_QUERY, id=capability_id).data()
-        has_children = bool(children and children[0]["count"])
-        if has_children:
-            raise CapabilityConflictError(capability_id)
-        session.run(DELETE_CAPABILITY_QUERY, id=capability_id)
+        with closing(self._driver.session()) as session:
+            current = session.run(GET_CAPABILITY_QUERY, id=capability_id).data()
+            if not current:
+                raise CapabilityNotFoundError(capability_id)
+            children = session.run(HAS_CHILDREN_QUERY, id=capability_id).data()
+            has_children = bool(children and children[0]["count"])
+            if has_children:
+                raise CapabilityHasChildrenError(capability_id)
+            deleted = session.run(DELETE_CAPABILITY_QUERY, id=capability_id).data()
+        if not (deleted and deleted[0]["deleted"]):
+            raise CapabilityHasChildrenError(capability_id)
 
 
 def load_neo4j_settings() -> tuple[str, str, str]:
@@ -293,6 +375,11 @@ def load_neo4j_settings() -> tuple[str, str, str]:
     return uri, user, password
 
 
+# The uniqueness constraint only has to be installed once per process; the flag
+# keeps the per-request dependency from paying for an extra round trip.
+_schema_ready = False
+
+
 def build_capability_store() -> CapabilityStore:
     """Construct a :class:`CapabilityStore` from a real Neo4j driver.
 
@@ -303,4 +390,9 @@ def build_capability_store() -> CapabilityStore:
     """
     uri, user, password = load_neo4j_settings()
     driver = GraphDatabase.driver(uri, auth=(user, password))
-    return CapabilityStore(driver)
+    store = CapabilityStore(driver)
+    global _schema_ready
+    if not _schema_ready:
+        store.ensure_schema()
+        _schema_ready = True
+    return store
