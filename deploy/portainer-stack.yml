@@ -1,0 +1,40 @@
+# DarkAngel stack for Portainer.
+#
+# Deploy this as a Portainer stack (Stacks -> Add stack). Point it at this file
+# via the "Repository" build method, or paste it in with the Web editor.
+#
+# Stack environment variables (Portainer -> Stack -> Environment variables):
+#   IMAGE_OWNER    GHCR namespace, lowercase   (default: nicolaslallier)
+#   IMAGE_TAG      image tag to run            (default: latest)
+#   FRONTEND_PORT  host port for the SPA       (default: 8080)
+#
+# The GitHub Actions deploy workflow pushes new images and then calls this
+# stack's webhook, which re-pulls the tag and recreates the services.
+
+services:
+  backend:
+    image: ghcr.io/${IMAGE_OWNER:-nicolaslallier}/darkangel-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      DARKANGEL_DEBUG: "false"
+      # Same-origin through the frontend's nginx proxy, so no cross-origin
+      # callers by default. Add origins here if the API is called directly.
+      DARKANGEL_CORS_ORIGINS: '[]'
+    expose:
+      - "8000"
+    networks:
+      - darkangel
+
+  frontend:
+    image: ghcr.io/${IMAGE_OWNER:-nicolaslallier}/darkangel-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - darkangel
+
+networks:
+  darkangel:
+    driver: bridge

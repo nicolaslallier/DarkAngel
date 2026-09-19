@@ -1,52 +1,102 @@
-name: Deploy
+name: Deploy to Portainer
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+    inputs:
+      image_tag:
+        description: "Tag to build and deploy"
+        required: false
+        default: latest
 
 concurrency:
-  group: pages
+  group: deploy-portainer
   cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
 
 jobs:
   build:
+    name: Build and push ${{ matrix.component }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        component: [backend, frontend]
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - run: cd frontend && npm ci
-
-      - name: Build
-        run: make build-frontend
-        env:
-          VITE_BASE: /${{ github.event.repository.name }}/
-
-      # Pages has no SPA fallback: serve index.html for deep links like /about.
-      - run: cp frontend/dist/index.html frontend/dist/404.html
-
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - name: Derive image tags
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          path: frontend/dist
+          # metadata-action lowercases the name, which GHCR requires.
+          images: ${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.component }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+            type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.component }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
   deploy:
+    name: Redeploy Portainer stack
     needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    # Set the DEPLOY_RUNNER repository variable to a self-hosted runner label
+    # when Portainer is only reachable from inside the local network.
+    runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
     steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Trigger stack webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
+          # Set the PORTAINER_INSECURE repository variable to "true" when the
+          # local Portainer serves a self-signed certificate.
+          INSECURE: ${{ vars.PORTAINER_INSECURE }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::error::PORTAINER_WEBHOOK_URL secret is not set. Create the stack webhook in Portainer (Stacks -> DarkAngel -> Webhooks) and store its URL as a repository secret."
+            exit 1
+          fi
+
+          curl_args="--silent --show-error --fail-with-body --location --max-time 120 --retry 3 --retry-delay 5 --retry-connrefused"
+          if [ "$INSECURE" = "true" ]; then
+            curl_args="$curl_args --insecure"
+          fi
+
+          echo "Calling Portainer stack webhook..."
+          # shellcheck disable=SC2086
+          curl $curl_args -X POST "$WEBHOOK_URL"
+          echo "Portainer accepted the redeploy request."
+
+      - name: Summary
+        run: |
+          # GHCR image names are lowercase, matching docker/metadata-action.
+          base=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          {
+            echo "### Deployed to Portainer"
+            echo
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Backend image: \`${base}-backend\`"
+            echo "- Frontend image: \`${base}-frontend\`"
+          } >> "$GITHUB_STEP_SUMMARY"

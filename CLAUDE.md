@@ -10,7 +10,10 @@ under the `/api` prefix.
 
 ## Commands
 
-All commands are also wrapped in the root `Makefile`.
+The root `Makefile` is the entrypoint for everything, including CI — run
+`make help` for the full list. `make ci` is the exact gate
+`.github/workflows/ci.yml` runs; `make verify` is that gate without the
+reinstall. The raw equivalents:
 
 ```sh
 make install                                   # install both sides

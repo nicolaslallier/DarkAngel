@@ -5,8 +5,6 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  // Set by the Pages deploy workflow (site lives under /<repo>/); '/' everywhere else.
-  base: process.env.VITE_BASE ?? '/',
   plugins: [vue()],
   resolve: {
     alias: {
