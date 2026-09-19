@@ -86,15 +86,24 @@ CORS configuration.
 
 ### One-time setup
 
-1. **Create the stack in Portainer** from `deploy/portainer-stack.yml`
-   (Stacks → Add stack → Web editor, or the Repository method pointed at this
-   repo). Set `IMAGE_OWNER` to your lowercase GHCR namespace; `FRONTEND_PORT`
-   defaults to `8080`.
+1. **Create `.portainer.env`** from `.portainer.env.example` and put a Portainer
+   access token in it (Portainer → My account → Access tokens). It is
+   gitignored: the token is Docker-daemon-root, so it never goes in `.env`
+   (which is handed to containers) or in the repository.
 2. **If the GHCR packages are private**, add a registry with your GitHub
    username and a PAT that has `read:packages` under Portainer → Registries, so
    the stack can pull.
-3. **Create the stack webhook** (Portainer → the stack → Webhooks) and save the
-   URL as the repository secret `PORTAINER_WEBHOOK_URL`.
+3. **Run `make up`.** It creates the stack in Portainer from this repository
+   (Repository method, `deploy/portainer-stack.yml` on `main`) and prints the
+   redeploy webhook it minted. Save that URL as the repository secret
+   `PORTAINER_WEBHOOK_URL` so `deploy.yml` can redeploy; `make webhook` prints
+   it again later.
+
+Nothing about this depends on the machine you run `make up` from being able to
+pull: Portainer, on the Docker host, does the pulling with its own registry
+credentials. A broken local credential helper — Docker Desktop's
+`error getting credentials … A specified logon session does not exist` under
+WSL — cannot break the deploy.
 
 ### Repository variables
 
@@ -109,10 +118,22 @@ Both are optional:
 ### Running the stack
 
 ```sh
-make up        # pull images and start (IMAGE_OWNER=<owner> FRONTEND_PORT=8080)
-make down      # stop and remove
-make ps logs   # status / follow logs (SERVICE=backend to filter)
-make deploy    # redeploy in Portainer via PORTAINER_WEBHOOK_URL
+make up        # create/redeploy in Portainer, re-pulling the GHCR images
+make pull      # redeploy an existing stack, re-pulling
+make down      # stop the stack (images and volumes kept)
+make delete    # remove the stack from Portainer
+make webhook   # print the redeploy webhook URL
+make ps logs   # status / follow logs on this docker host (SERVICE=backend)
+make deploy    # redeploy via PORTAINER_WEBHOOK_URL, the way CI does
 ```
+
+`IMAGE_OWNER`, `IMAGE_TAG` and `FRONTEND_PORT` are passed through to the stack:
+`make up IMAGE_TAG=sha-<commit>` rolls to a specific build. `PORTAINER_URL`,
+`PORTAINER_NETWORK` and `PORTAINER_REF` cover a setup that differs from the
+Infra stack's defaults (Portainer on `infra-net`, deploying `main`).
+
+On a host with no Portainer, `make up-local` / `make down-local` run the same
+stack file through the local docker daemon. That path pulls from GHCR itself,
+so it needs a working `docker login ghcr.io` on that machine.
 
 The SPA is then on http://localhost:8080 and the API on http://localhost:8080/api.
