@@ -37,7 +37,8 @@ DIST ?= dist
         lint lint-backend lint-frontend format format-check typecheck \
         test test-backend coverage \
         build build-backend build-frontend preview \
-        pull up down restart ps logs deploy \
+        up pull down delete webhook stack-selftest deploy \
+        up-local down-local restart ps logs \
         ci verify release clean clean-backend clean-frontend distclean
 
 ## ---------------------------------------------------------------- meta -----
@@ -148,36 +149,64 @@ release: clean build ## Collect the release artifacts under dist/
 	@ls -1 $(DIST)
 
 ## ------------------------------------------------------------- stack -----
-# The same stack file Portainer runs (deploy/portainer-stack.yml), so `up` on a
-# laptop or docker host matches what Portainer deploys.
+# Portainer owns the stack, exactly as it owns the "infra" one: it deploys
+# deploy/portainer-stack.yml from GitHub and pulls the GHCR images on the
+# Docker host with the credentials held in Portainer -> Registries. That keeps
+# the pull off this machine, where Docker Desktop's credential helper can fail
+# with "A specified logon session does not exist".
+#
+# Overrides: IMAGE_OWNER, IMAGE_TAG, FRONTEND_PORT (the stack's variables), and
+# PORTAINER_URL / PORTAINER_NETWORK / PORTAINER_REF for an unusual setup.
+
+STACK_SH := ./scripts/portainer-stack.sh
+
+up: ## Deploy/redeploy the stack in Portainer, re-pulling the GHCR images
+	$(STACK_SH) up
+
+pull: ## Redeploy an existing Portainer stack, re-pulling the images
+	$(STACK_SH) pull
+
+down: ## Stop the stack in Portainer (images and volumes kept)
+	$(STACK_SH) down
+
+delete: ## Remove the stack from Portainer entirely
+	$(STACK_SH) delete
+
+webhook: ## Print the stack's redeploy webhook (creating one if needed)
+	@$(STACK_SH) webhook
+
+stack-selftest: ## Check portainer-stack.sh's helpers without calling Portainer
+	@$(STACK_SH) selftest
+
+# ponytail: the webhook only redeploys; stopping the stack is `make down`.
+deploy: ## Redeploy the Portainer stack via PORTAINER_WEBHOOK_URL (what CI calls)
+	@test -n "$$PORTAINER_WEBHOOK_URL" || { echo "set PORTAINER_WEBHOOK_URL (get it from 'make webhook')" >&2; exit 1; }
+	curl --silent --show-error --fail-with-body --location --max-time 120 \
+		$${PORTAINER_INSECURE:+--insecure} -X POST "$$PORTAINER_WEBHOOK_URL"
+	@echo "deploy: Portainer accepted the redeploy request"
+
+## --------------------------------------------------------- stack (local) ---
+# The same stack file run by the local docker daemon, for a host with no
+# Portainer. `up-local` pulls from GHCR itself, so it needs a working
+# `docker login ghcr.io` on this machine.
 
 STACK := deploy/portainer-stack.yml
 COMPOSE ?= docker compose -f $(STACK) -p darkangel
 
-pull: ## Pull the stack's images from GHCR
-	$(COMPOSE) pull
-
-up: ## Start the stack (pulls images first); SPA on FRONTEND_PORT (default 8080)
+up-local: ## Start the stack with the local docker daemon (no Portainer)
 	$(COMPOSE) up -d --pull always
 
-down: ## Stop and remove the stack's containers
+down-local: ## Stop the locally-run stack
 	$(COMPOSE) down
 
-restart: ## Restart the stack's containers
+restart: ## Restart the stack's containers on this docker host
 	$(COMPOSE) restart
 
-ps: ## Show the stack's containers
+ps: ## Show the stack's containers on this docker host
 	$(COMPOSE) ps
 
 logs: ## Follow the stack logs; limit with SERVICE=backend
 	$(COMPOSE) logs -f $(SERVICE)
-
-# ponytail: webhook only redeploys; stopping the stack is done in Portainer UI.
-deploy: ## Redeploy the Portainer stack via PORTAINER_WEBHOOK_URL
-	@test -n "$$PORTAINER_WEBHOOK_URL" || { echo "set PORTAINER_WEBHOOK_URL" >&2; exit 1; }
-	curl --silent --show-error --fail-with-body --location --max-time 120 \
-		$${PORTAINER_INSECURE:+--insecure} -X POST "$$PORTAINER_WEBHOOK_URL"
-	@echo "deploy: Portainer accepted the redeploy request"
 
 ## ---------------------------------------------------------- housekeeping ---
 
