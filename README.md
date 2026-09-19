@@ -86,6 +86,17 @@ the environment, or from `INFRA_ENV`, default `../Infra/.env`) and is safe to
 re-run. Users are the realm's existing users; create new ones in the admin
 console.
 
+Keycloak's certificate comes from the private Infra CA, which curl does not
+trust on its own — `curl: (60) unable to get local issuer certificate`. The
+script reads the CA from the Infra checkout next to `INFRA_ENV`
+(`../Infra/certs/infra-ca.crt`), so with the two repos side by side it just
+works. Otherwise:
+
+```sh
+KC_CACERT=/path/to/Infra/certs/infra-ca.crt make keycloak-client
+KC_INSECURE=true make keycloak-client   # skip verification instead
+```
+
 **Local dev:** `make dev-frontend` logs in against the real realm (the client
 allows `http://localhost:5173`). The backend fetches the realm's signing keys
 over HTTPS, and Python does not trust the Infra CA the way the macOS keychain
