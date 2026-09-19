@@ -11,12 +11,12 @@ COPY . .
 # `npm run build` is vue-tsc type-check + vite build, so a type error fails here.
 RUN npm run build
 
-FROM nginx:1.27-alpine
+# No web server in this image on purpose. The Infra stack's NGINX is the only
+# one that fronts DarkAngel (deploy/nginx/darkangel.conf); this stage is a
+# one-shot publisher that hands it the files through a shared volume and exits.
+FROM busybox:1.37-musl
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=build /app/dist /opt/darkangel/dist
+COPY --chmod=0755 publish-assets.sh /usr/local/bin/publish-assets
 
-EXPOSE 80
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget --spider -q http://127.0.0.1/ || exit 1
+CMD ["/usr/local/bin/publish-assets"]

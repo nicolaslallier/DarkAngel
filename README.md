@@ -80,40 +80,45 @@ Portainer instance to redeploy them.
 Images are published as `ghcr.io/<owner>/darkangel-backend` and
 `ghcr.io/<owner>/darkangel-frontend`, tagged `latest` and `sha-<commit>`.
 
-The frontend image serves the built SPA with nginx and proxies `/api` to the
-`backend` service (`frontend/nginx.conf`), so the API is same-origin and needs no
-CORS configuration.
+The frontend image runs no web server. Its final stage is a one-shot publisher:
+it copies the built SPA into the shared `darkangel-web` volume and exits, and
+the Infra NGINX serves those files (`frontend/publish-assets.sh`).
 
 ### Ingress
 
-The stack publishes no host port. The [Infra](https://github.com/nicolaslallier/Infra)
-stack's NGINX is the only ingress on that host, so the deployed address is:
+DarkAngel adds no nginx of its own. The [Infra](https://github.com/nicolaslallier/Infra)
+stack's NGINX is the only web server in front of it, so the deployed address is:
 
 ```
 https://darkangel.infra.famillelallier.net
 ```
 
-The SPA container joins the shared `infra-net` network as `darkangel-web` and
-that NGINX proxies the hostname to it; the backend stays on the stack's private
-network, reachable only through the SPA container's own `/api` proxy. The
+That NGINX serves the SPA's files directly out of the shared `darkangel-web`
+volume, and proxies `/api/` to the `darkangel-api` container over `infra-net`
+(no prefix rewrite: the FastAPI router is mounted at `/api` already). SPA and
+API therefore answer on one origin, so no CORS configuration is needed. The
 hostname is covered by the `*.infra.famillelallier.net` cert and DNS wildcard,
 so no certificate SAN or DNS zone has to be added.
 
-The vhost itself lives in the Infra repo. Copy
+Two things live in the Infra repo. Copy
 [`deploy/nginx/darkangel.conf`](deploy/nginx/darkangel.conf) to
-`nginx/conf.d/darkangel.conf` there and run `make up` in that repo — until that
-is done, DarkAngel is running but nothing routes to it.
+`nginx/conf.d/darkangel.conf` there, add the `darkangel-web` volume to its
+`nginx` service (the file's header has the exact lines), and run `make up` in
+that repo — until that is done, DarkAngel is running but nothing routes to it.
 
 ### One-time setup
 
-1. **Create `.portainer.env`** from `.portainer.env.example` and put a Portainer
+1. **Create the shared volume** on the Docker host — `docker volume create
+   darkangel-web`. Both stacks declare it `external`, the way they both use
+   `infra-net`: this stack fills it, the Infra NGINX reads it.
+2. **Create `.portainer.env`** from `.portainer.env.example` and put a Portainer
    access token in it (Portainer → My account → Access tokens). It is
    gitignored: the token is Docker-daemon-root, so it never goes in `.env`
    (which is handed to containers) or in the repository.
-2. **If the GHCR packages are private**, add a registry with your GitHub
+3. **If the GHCR packages are private**, add a registry with your GitHub
    username and a PAT that has `read:packages` under Portainer → Registries, so
    the stack can pull.
-3. **Run `make up`.** It creates the stack in Portainer from this repository
+4. **Run `make up`.** It creates the stack in Portainer from this repository
    (Repository method, `deploy/portainer-stack.yml` on `main`) and prints the
    redeploy webhook it minted. Save that URL as the repository secret
    `PORTAINER_WEBHOOK_URL` so `deploy.yml` can redeploy; `make webhook` prints
@@ -143,7 +148,7 @@ make pull      # redeploy an existing stack, re-pulling
 make down      # stop the stack (images and volumes kept)
 make delete    # remove the stack from Portainer
 make webhook   # print the redeploy webhook URL
-make ps logs   # status / follow logs on this docker host (SERVICE=backend)
+make ps logs   # status / follow logs on this docker host (SERVICE=darkangel-api)
 make deploy    # redeploy via PORTAINER_WEBHOOK_URL, the way CI does
 ```
 
@@ -155,11 +160,11 @@ Infra stack's defaults (Portainer on `infra-net`, deploying `main`).
 On a host with no Portainer, `make up-local` / `make down-local` run the same
 stack file through the local docker daemon. That path pulls from GHCR itself,
 so it needs a working `docker login ghcr.io` on that machine, and it creates
-`infra-net` if the Infra stack has not.
+`infra-net` and `darkangel-web` if the Infra stack has not.
 
 Either way the containers publish nothing: the stack is reached through the
 Infra NGINX at `https://darkangel.infra.famillelallier.net` (API under `/api`).
-To look at the SPA on a host without that NGINX, publish it ad hoc —
-`docker compose -f deploy/portainer-stack.yml -p darkangel run --rm -p 8080:80
-darkangel-web`, then http://localhost:8080 — or just run `make dev-backend` and
-`make dev-frontend`.
+`web-assets` is expected to sit in `Exited (0)` — it publishes the build and
+stops; only `darkangel-api` keeps running. On a host without that NGINX there is
+nothing to serve the SPA, so look at it with `make dev-backend` and
+`make dev-frontend` instead.
