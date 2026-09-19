@@ -32,6 +32,11 @@ services:
       # so the browser never makes a cross-origin call. Add origins here if the
       # API grows callers of its own.
       DARKANGEL_CORS_ORIGINS: '[]'
+      # Tokens are still checked against the public issuer
+      # (https://keycloak.famillelallier.net/realms/ea); only the signing keys
+      # are read from Keycloak directly over infra-net, so the container needs
+      # no copy of the Infra CA to trust the public hostname.
+      DARKANGEL_AUTH_JWKS_URL: http://keycloak:8080/realms/ea/protocol/openid-connect/certs
     expose:
       - "8000"
     # Named for infra-net, which every app on this host shares: a plain

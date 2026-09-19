@@ -37,7 +37,7 @@ DIST ?= dist
         lint lint-backend lint-frontend format format-check typecheck \
         test test-backend coverage \
         build build-backend build-frontend preview \
-        up pull down delete webhook stack-selftest deploy \
+        up pull down delete webhook stack-selftest deploy keycloak-client \
         up-local down-local restart ps logs \
         ci verify release clean clean-backend clean-frontend distclean
 
@@ -182,6 +182,9 @@ webhook: ## Print the stack's redeploy webhook (creating one if needed)
 
 stack-selftest: ## Check portainer-stack.sh's helpers without calling Portainer
 	@$(STACK_SH) selftest
+
+keycloak-client: ## Create/update the darkangel-spa client in Keycloak realm ea (INFRA_ENV=../Infra/.env)
+	@scripts/provision-keycloak-client.sh
 
 # ponytail: the webhook only redeploys; stopping the stack is `make down`.
 deploy: ## Redeploy the Portainer stack via PORTAINER_WEBHOOK_URL (what CI calls)
