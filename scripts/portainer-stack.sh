@@ -41,13 +41,12 @@ die() { printf 'portainer-stack.sh: %b\n' "$*" >&2; exit 1; }
 note() { printf 'portainer-stack.sh: %b\n' "$*"; }
 
 # The stack's environment variables, as Portainer's [{name,value}] shape.
-# deploy/portainer-stack.yml reads exactly these three; every other variable in
+# deploy/portainer-stack.yml reads exactly these two; every other variable in
 # the environment stays out, so nothing unrelated leaks into the stack.
-stack_env() { # <image-owner> <image-tag> <frontend-port>
-  jq -n --arg owner "$1" --arg tag "$2" --arg port "$3" \
+stack_env() { # <image-owner> <image-tag>
+  jq -n --arg owner "$1" --arg tag "$2" \
     '[{name: "IMAGE_OWNER", value: $owner},
-      {name: "IMAGE_TAG", value: $tag},
-      {name: "FRONTEND_PORT", value: $port}]'
+      {name: "IMAGE_TAG", value: $tag}]'
 }
 
 gen_uuid() {
@@ -64,10 +63,10 @@ gen_uuid() {
 
 selftest() {
   local got want
-  got="$(stack_env nicolaslallier latest 8080 | jq -c .)"
-  want='[{"name":"IMAGE_OWNER","value":"nicolaslallier"},{"name":"IMAGE_TAG","value":"latest"},{"name":"FRONTEND_PORT","value":"8080"}]'
+  got="$(stack_env nicolaslallier latest | jq -c .)"
+  want='[{"name":"IMAGE_OWNER","value":"nicolaslallier"},{"name":"IMAGE_TAG","value":"latest"}]'
   [ "$got" = "$want" ] || die "selftest: stack_env\n  got:  $got\n  want: $want"
-  got="$(stack_env 'o w' 'sha-1234' '' | jq -r '.[1].value')"
+  got="$(stack_env 'o w' 'sha-1234' | jq -r '.[1].value')"
   [ "$got" = sha-1234 ] || die "selftest: stack_env did not carry the tag through"
   case "$(gen_uuid)" in
     [0-9a-f]*-*-*-*-*) ;;
@@ -126,7 +125,6 @@ fi
 
 IMAGE_OWNER="${IMAGE_OWNER:-nicolaslallier}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
-FRONTEND_PORT="${FRONTEND_PORT:-8080}"
 
 eid="${PORTAINER_ENDPOINT_ID:-$(api GET /endpoints | jq -r '[.[] | select(.Type == 1)][0].Id // empty')}"
 [ -n "$eid" ] || die "no local Docker environment found in Portainer"
@@ -136,7 +134,7 @@ sid=""
 
 case "$cmd" in
   up|pull)
-    env="$(stack_env "$IMAGE_OWNER" "$IMAGE_TAG" "$FRONTEND_PORT")"
+    env="$(stack_env "$IMAGE_OWNER" "$IMAGE_TAG")"
     if [ -z "$sid" ]; then
       [ "$cmd" = up ] || die "stack '$STACK' does not exist yet -- 'make up' first"
       hook="$(gen_uuid)"
@@ -161,7 +159,7 @@ case "$cmd" in
         '{RepositoryReferenceName: $ref, RepositoryAuthentication: false, Env: $env,
           Prune: false, PullImage: true, RepullImageAndRedeploy: true}')"
       api PUT "/stacks/$sid/git/redeploy?endpointId=$eid" "$body" >/dev/null
-      note "redeployed stack '$STACK' ($REF, $IMAGE_OWNER/darkangel-*:$IMAGE_TAG on :$FRONTEND_PORT)"
+      note "redeployed stack '$STACK' ($REF, $IMAGE_OWNER/darkangel-*:$IMAGE_TAG)"
     fi
     ;;
   down)
