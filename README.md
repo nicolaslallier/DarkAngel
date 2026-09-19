@@ -106,10 +106,13 @@ Both are optional:
 - `PORTAINER_INSECURE` — set to `true` when Portainer serves a self-signed
   certificate, which adds `--insecure` to the webhook call.
 
-### Running the stack locally
+### Running the stack
 
 ```sh
-cd deploy && IMAGE_OWNER=<owner> docker compose -f portainer-stack.yml up -d
+make up        # pull images and start (IMAGE_OWNER=<owner> FRONTEND_PORT=8080)
+make down      # stop and remove
+make ps logs   # status / follow logs (SERVICE=backend to filter)
+make deploy    # redeploy in Portainer via PORTAINER_WEBHOOK_URL
 ```
 
 The SPA is then on http://localhost:8080 and the API on http://localhost:8080/api.

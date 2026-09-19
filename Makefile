@@ -37,6 +37,7 @@ DIST ?= dist
         lint lint-backend lint-frontend format format-check typecheck \
         test test-backend coverage \
         build build-backend build-frontend preview \
+        pull up down restart ps logs deploy \
         ci verify release clean clean-backend clean-frontend distclean
 
 ## ---------------------------------------------------------------- meta -----
@@ -145,6 +146,38 @@ release: clean build ## Collect the release artifacts under dist/
 	@tar -czf $(DIST)/darkangel-frontend-$(VERSION).tar.gz -C $(FRONTEND)/dist .
 	@echo "release: artifacts in $(DIST)/"
 	@ls -1 $(DIST)
+
+## ------------------------------------------------------------- stack -----
+# The same stack file Portainer runs (deploy/portainer-stack.yml), so `up` on a
+# laptop or docker host matches what Portainer deploys.
+
+STACK := deploy/portainer-stack.yml
+COMPOSE ?= docker compose -f $(STACK) -p darkangel
+
+pull: ## Pull the stack's images from GHCR
+	$(COMPOSE) pull
+
+up: ## Start the stack (pulls images first); SPA on FRONTEND_PORT (default 8080)
+	$(COMPOSE) up -d --pull always
+
+down: ## Stop and remove the stack's containers
+	$(COMPOSE) down
+
+restart: ## Restart the stack's containers
+	$(COMPOSE) restart
+
+ps: ## Show the stack's containers
+	$(COMPOSE) ps
+
+logs: ## Follow the stack logs; limit with SERVICE=backend
+	$(COMPOSE) logs -f $(SERVICE)
+
+# ponytail: webhook only redeploys; stopping the stack is done in Portainer UI.
+deploy: ## Redeploy the Portainer stack via PORTAINER_WEBHOOK_URL
+	@test -n "$$PORTAINER_WEBHOOK_URL" || { echo "set PORTAINER_WEBHOOK_URL" >&2; exit 1; }
+	curl --silent --show-error --fail-with-body --location --max-time 120 \
+		$${PORTAINER_INSECURE:+--insecure} -X POST "$$PORTAINER_WEBHOOK_URL"
+	@echo "deploy: Portainer accepted the redeploy request"
 
 ## ---------------------------------------------------------- housekeeping ---
 
