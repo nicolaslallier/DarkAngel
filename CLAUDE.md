@@ -39,11 +39,16 @@ Python environment for this project, so always call tools through `.venv/bin/`.
 - `core/config.py` — `Settings` (pydantic-settings), read from the environment
   with the `DARKANGEL_` prefix or `backend/.env`. Access it through the cached
   `get_settings()`, never by instantiating `Settings()` directly.
+- `core/auth.py` — Keycloak (realm `ea`) bearer-token check. Protect a route by
+  taking the `Claims` dependency; `/api/health` is the only public route.
 
 **Frontend** (`frontend/src/`)
 
-- `api/client.ts` — the only place `fetch` is called; per-resource modules
-  (`api/health.ts`) wrap it and own the response types.
+- `api/client.ts` — the only place `fetch` is called; it attaches the Keycloak
+  access token. Per-resource modules (`api/health.ts`) wrap it and own the
+  response types.
+- `auth.ts` — the `oidc-client-ts` `UserManager` (client `darkangel-spa`); the
+  router's `beforeEach` sends every non-`meta.public` route through login.
 - `stores/` — Pinia setup stores holding async state (`loading`/`error`/data).
 - `views/` + `router/index.ts` — routed pages; `@/` is aliased to `src/`.
 

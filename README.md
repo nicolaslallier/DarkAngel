@@ -67,6 +67,37 @@ Backend settings are read from the environment with the `DARKANGEL_` prefix (see
 `backend/.env.example`); frontend settings use Vite's `VITE_` prefix (see
 `frontend/.env.example`).
 
+## Authentication
+
+Users sign in through the Infra Keycloak, realm `ea`
+(`https://keycloak.famillelallier.net/realms/ea`), the same realm EA uses.
+
+- **SPA** (`frontend/src/auth.ts`, `oidc-client-ts`): public client
+  `darkangel-spa`, authorization code + PKCE. Every route but `/auth/callback`
+  redirects to Keycloak when there is no token; tokens stay in memory, and
+  `api/client.ts` sends the access token as `Authorization: Bearer`.
+- **API** (`backend/app/core/auth.py`, PyJWT): a route takes the `Claims`
+  dependency to require a valid token — RS256, issuer as above, audience
+  `darkangel-api`. `GET /api/me` returns the caller; `/api/health` stays public.
+
+**One-time setup:** create the client with `make keycloak-client`. It logs in to
+the Keycloak admin API with `KEYCLOAK_ADMIN`/`KEYCLOAK_ADMIN_PASSWORD` (taken from
+the environment, or from `INFRA_ENV`, default `../Infra/.env`) and is safe to
+re-run. Users are the realm's existing users; create new ones in the admin
+console.
+
+**Local dev:** `make dev-frontend` logs in against the real realm (the client
+allows `http://localhost:5173`). The backend fetches the realm's signing keys
+over HTTPS, and Python does not trust the Infra CA the way the macOS keychain
+does, so start it with:
+
+```sh
+SSL_CERT_FILE=/path/to/Infra/certs/infra-ca.crt make dev-backend
+```
+
+In the stack, `DARKANGEL_AUTH_JWKS_URL` reads the keys from
+`http://keycloak:8080` over `infra-net` instead, so no CA is mounted.
+
 ## Deployment
 
 GitHub Actions builds both services as container images and tells a local
