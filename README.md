@@ -27,8 +27,8 @@ cd frontend && npm install
 Two terminals:
 
 ```sh
-make backend    # http://localhost:8000 (docs at /docs)
-make frontend   # http://localhost:5173
+make dev-backend    # http://localhost:8000 (docs at /docs)
+make dev-frontend   # http://localhost:5173
 ```
 
 The Vite dev server proxies `/api` to the backend, so no CORS setup is needed in
@@ -38,10 +38,28 @@ served separately from the backend.
 ## Checks
 
 ```sh
-make test    # pytest
-make lint    # ruff
-make build   # vue-tsc + vite build
+make test          # pytest
+make coverage      # pytest with coverage, fails under 80%
+make lint          # ruff check + vue-tsc
+make format        # apply ruff formatting
+make format-check  # fail if the backend is unformatted
+make build         # backend wheel + vue-tsc/vite build
 ```
+
+## CI/CD
+
+`make` is the single entrypoint; `.github/workflows/ci.yml` only calls these
+targets, so the pipeline runs identically on a laptop and on a runner.
+
+```sh
+make ci        # what CI runs: install-ci, then the full gate
+make verify    # the same gate against an existing install (faster, local)
+make release   # build and collect artifacts into dist/
+```
+
+`make help` lists every target. `make doctor` checks the required tools are on
+PATH. Useful overrides: `PORT`, `COVERAGE_MIN`, `PYTHON_VERSION`, `DIST`, and
+`ARGS` for `make test-backend ARGS="-k health"`.
 
 ## Configuration
 
