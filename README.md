@@ -84,6 +84,26 @@ The frontend image serves the built SPA with nginx and proxies `/api` to the
 `backend` service (`frontend/nginx.conf`), so the API is same-origin and needs no
 CORS configuration.
 
+### Ingress
+
+The stack publishes no host port. The [Infra](https://github.com/nicolaslallier/Infra)
+stack's NGINX is the only ingress on that host, so the deployed address is:
+
+```
+https://darkangel.infra.famillelallier.net
+```
+
+The SPA container joins the shared `infra-net` network as `darkangel-web` and
+that NGINX proxies the hostname to it; the backend stays on the stack's private
+network, reachable only through the SPA container's own `/api` proxy. The
+hostname is covered by the `*.infra.famillelallier.net` cert and DNS wildcard,
+so no certificate SAN or DNS zone has to be added.
+
+The vhost itself lives in the Infra repo. Copy
+[`deploy/nginx/darkangel.conf`](deploy/nginx/darkangel.conf) to
+`nginx/conf.d/darkangel.conf` there and run `make up` in that repo — until that
+is done, DarkAngel is running but nothing routes to it.
+
 ### One-time setup
 
 1. **Create `.portainer.env`** from `.portainer.env.example` and put a Portainer
@@ -127,13 +147,19 @@ make ps logs   # status / follow logs on this docker host (SERVICE=backend)
 make deploy    # redeploy via PORTAINER_WEBHOOK_URL, the way CI does
 ```
 
-`IMAGE_OWNER`, `IMAGE_TAG` and `FRONTEND_PORT` are passed through to the stack:
-`make up IMAGE_TAG=sha-<commit>` rolls to a specific build. `PORTAINER_URL`,
+`IMAGE_OWNER` and `IMAGE_TAG` are passed through to the stack: `make up
+IMAGE_TAG=sha-<commit>` rolls to a specific build. `PORTAINER_URL`,
 `PORTAINER_NETWORK` and `PORTAINER_REF` cover a setup that differs from the
 Infra stack's defaults (Portainer on `infra-net`, deploying `main`).
 
 On a host with no Portainer, `make up-local` / `make down-local` run the same
 stack file through the local docker daemon. That path pulls from GHCR itself,
-so it needs a working `docker login ghcr.io` on that machine.
+so it needs a working `docker login ghcr.io` on that machine, and it creates
+`infra-net` if the Infra stack has not.
 
-The SPA is then on http://localhost:8080 and the API on http://localhost:8080/api.
+Either way the containers publish nothing: the stack is reached through the
+Infra NGINX at `https://darkangel.infra.famillelallier.net` (API under `/api`).
+To look at the SPA on a host without that NGINX, publish it ad hoc —
+`docker compose -f deploy/portainer-stack.yml -p darkangel run --rm -p 8080:80
+darkangel-web`, then http://localhost:8080 — or just run `make dev-backend` and
+`make dev-frontend`.

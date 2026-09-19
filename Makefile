@@ -155,7 +155,10 @@ release: clean build ## Collect the release artifacts under dist/
 # the pull off this machine, where Docker Desktop's credential helper can fail
 # with "A specified logon session does not exist".
 #
-# Overrides: IMAGE_OWNER, IMAGE_TAG, FRONTEND_PORT (the stack's variables), and
+# The stack publishes no host port: the Infra stack's NGINX fronts it at
+# https://darkangel.infra.famillelallier.net (deploy/nginx/darkangel.conf).
+#
+# Overrides: IMAGE_OWNER, IMAGE_TAG (the stack's variables), and
 # PORTAINER_URL / PORTAINER_NETWORK / PORTAINER_REF for an unusual setup.
 
 STACK_SH := ./scripts/portainer-stack.sh
@@ -188,12 +191,15 @@ deploy: ## Redeploy the Portainer stack via PORTAINER_WEBHOOK_URL (what CI calls
 ## --------------------------------------------------------- stack (local) ---
 # The same stack file run by the local docker daemon, for a host with no
 # Portainer. `up-local` pulls from GHCR itself, so it needs a working
-# `docker login ghcr.io` on this machine.
+# `docker login ghcr.io` on this machine. The stack file expects `infra-net` to
+# exist (the Infra stack owns it), so up-local creates it when it does not --
+# without an nginx on that network, reach the SPA from another container on it.
 
 STACK := deploy/portainer-stack.yml
 COMPOSE ?= docker compose -f $(STACK) -p darkangel
 
 up-local: ## Start the stack with the local docker daemon (no Portainer)
+	@docker network inspect infra-net >/dev/null 2>&1 || docker network create infra-net
 	$(COMPOSE) up -d --pull always
 
 down-local: ## Stop the locally-run stack
