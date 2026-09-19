@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     # trusting the Infra CA for the public hostname from inside the container.
     auth_jwks_url: str | None = None
 
+    # Home files, in the Infra MinIO: plain HTTP `minio:9000` on infra-net. The
+    # bucket and its scoped user are made by `make minio` (scripts/provision-minio.sh).
+    s3_endpoint: str = "minio:9000"
+    s3_secure: bool = False
+    s3_bucket: str = "darkangel-files"
+    s3_access_key: str = "darkangel-api"
+    s3_secret_key: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

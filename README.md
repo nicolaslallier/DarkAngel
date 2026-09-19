@@ -109,6 +109,25 @@ SSL_CERT_FILE=/path/to/Infra/certs/infra-ca.crt make dev-backend
 In the stack, `DARKANGEL_AUTH_JWKS_URL` reads the keys from
 `http://keycloak:8080` over `infra-net` instead, so no CA is mounted.
 
+## Files
+
+The **Files** page (`/files`) keeps your home files in the Infra MinIO. Each
+signed-in user sees only their own: the API (`/api/files`) stores them under
+their Keycloak `sub` in bucket `darkangel-files`, as the MinIO user
+`darkangel-api`, over `http://minio:9000` on `infra-net`. The browser never
+talks to MinIO directly. Uploads are capped at 100 MB by the Infra NGINX
+(`client_max_body_size` in `deploy/nginx/darkangel.conf`). The bucket is
+versioned, so a file that was overwritten or deleted can be brought back from
+the MinIO console.
+
+**One-time setup:** put a secret of 8+ characters in `.portainer.env` as
+`MINIO_SECRET_KEY`. Then, on the Docker host, run `make minio` to create the
+bucket, the user, and its bucket-only policy, and `make up` to hand the secret
+to the API. `make minio` reads the MinIO root credentials from the Infra `.env`
+(`INFRA_ENV`, default `../Infra/.env`). It runs `mc` in a throwaway container on
+`infra-net`, and it is safe to re-run: to rotate the secret, change it and run
+both targets again.
+
 ## Deployment
 
 GitHub Actions builds both services as container images and tells a local
@@ -160,7 +179,9 @@ that repo — until that is done, DarkAngel is running but nothing routes to it.
 3. **If the GHCR packages are private**, add a registry with your GitHub
    username and a PAT that has `read:packages` under Portainer → Registries, so
    the stack can pull.
-4. **Run `make up`.** It creates the stack in Portainer from this repository
+4. **Provision file storage** — set `MINIO_SECRET_KEY` in `.portainer.env` and
+   run `make minio` (see [Files](#files)).
+5. **Run `make up`.** It creates the stack in Portainer from this repository
    (Repository method, `deploy/portainer-stack.yml` on `main`) and prints the
    redeploy webhook it minted. Save that URL as the repository secret
    `PORTAINER_WEBHOOK_URL` so `deploy.yml` can redeploy; `make webhook` prints
