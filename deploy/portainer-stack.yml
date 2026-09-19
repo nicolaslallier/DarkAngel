@@ -10,42 +10,55 @@
 # The GitHub Actions deploy workflow pushes new images and then calls this
 # stack's webhook, which re-pulls the tag and recreates the services.
 #
-# Nothing here publishes a host port: the Infra stack's NGINX is the only
-# ingress (github.com/nicolaslallier/Infra). It reaches the SPA container by its
-# infra-net name, `darkangel-web`, and serves it at
-# https://darkangel.infra.famillelallier.net -- see deploy/nginx/darkangel.conf
-# for the vhost to install there.
+# There is no web server in this stack: the Infra stack's NGINX
+# (github.com/nicolaslallier/Infra) is the one that serves DarkAngel at
+# https://darkangel.infra.famillelallier.net. It reads the SPA's files from the
+# shared `darkangel-web` volume that web-assets fills, and proxies /api/ to
+# darkangel-api over infra-net -- see deploy/nginx/darkangel.conf for the vhost
+# to install there, including the two lines the Infra compose needs for the
+# volume.
+#
+# Both the network and the volume are external, because the Infra stack is the
+# other end of each: `docker volume create darkangel-web` once (make up-local
+# does it), and the Infra stack owns infra-net.
 
 services:
-  backend:
+  darkangel-api:
     image: ghcr.io/${IMAGE_OWNER:-nicolaslallier}/darkangel-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       DARKANGEL_DEBUG: "false"
-      # Same-origin through the SPA container's nginx proxy, so no cross-origin
-      # callers by default. Add origins here if the API is called directly.
+      # The SPA and the API answer on the same origin through the Infra NGINX,
+      # so the browser never makes a cross-origin call. Add origins here if the
+      # API grows callers of its own.
       DARKANGEL_CORS_ORIGINS: '[]'
     expose:
       - "8000"
-    # The private stack network only: the API is reachable through darkangel-web
-    # and nothing else. `backend` is the name frontend/nginx.conf proxies to.
-    networks:
-      - darkangel
-
-  darkangel-web:
-    image: ghcr.io/${IMAGE_OWNER:-nicolaslallier}/darkangel-frontend:${IMAGE_TAG:-latest}
-    restart: unless-stopped
-    depends_on:
-      - backend
     # Named for infra-net, which every app on this host shares: a plain
-    # `frontend` alias would collide with the next stack's.
+    # `backend` alias would collide with the next stack's. The API router is
+    # mounted at /api (backend/app/api/router.py), so the vhost passes the
+    # prefix straight through.
     networks:
-      - darkangel
       - infra-net
 
+  web-assets:
+    image: ghcr.io/${IMAGE_OWNER:-nicolaslallier}/darkangel-frontend:${IMAGE_TAG:-latest}
+    # One-shot: it copies the built SPA into darkangel-web and exits, so a
+    # redeploy republishes the new build and the container stays down after.
+    # Exited is the healthy steady state here -- `make ps` shows it as such.
+    restart: "no"
+    # It talks to nothing; the volume is its only contact with the rest.
+    network_mode: none
+    volumes:
+      - darkangel-web:/srv/darkangel
+
 networks:
-  darkangel:
-    driver: bridge
   # Created by the Infra stack; `make up-local` creates it if it is missing.
   infra-net:
+    external: true
+
+volumes:
+  # Shared with the Infra stack's NGINX, which mounts it read-only at
+  # /srv/darkangel and serves /srv/darkangel/current.
+  darkangel-web:
     external: true
