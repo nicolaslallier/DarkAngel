@@ -58,3 +58,11 @@ then allow that frontend origin.
   models declared next to their route.
 - Frontend: `<script setup lang="ts">` single-file components; import from `@/`
   rather than with relative paths that climb directories.
+
+## Git workflow
+
+- Always work on a dedicated branch (never directly on `main`), created from an
+  up-to-date `origin/main`.
+- Never commit to `main` automatically, and never push to it. Changes reach `main`
+  only through a pull request.
+- Only commit when explicitly asked to; do not commit as a side effect of another task.
