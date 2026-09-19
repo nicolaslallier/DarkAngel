@@ -183,7 +183,7 @@ webhook: ## Print the stack's redeploy webhook (creating one if needed)
 stack-selftest: ## Check portainer-stack.sh's helpers without calling Portainer
 	@$(STACK_SH) selftest
 
-keycloak-client: ## Create/update the darkangel-spa client in Keycloak realm ea (INFRA_ENV=../Infra/.env)
+keycloak-client: ## Create/update the darkangel-spa client in Keycloak realm ea (INFRA_ENV, KC_CACERT)
 	@scripts/provision-keycloak-client.sh
 
 # ponytail: the webhook only redeploys; stopping the stack is `make down`.
