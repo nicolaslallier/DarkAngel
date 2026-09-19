@@ -27,6 +27,9 @@
 #
 # Usage: scripts/provision-keycloak-client.sh
 set -euo pipefail
+# Kept before the cd so a relative KC_CACERT can still be read the way the
+# caller meant it (paths below are relative to the repo root).
+INVOKED_FROM="$PWD"
 cd "$(dirname "$0")/.."
 
 KC_URL="${KC_URL:-https://keycloak.famillelallier.net}"
@@ -52,7 +55,12 @@ KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-$(env_value KEYCLOAK_ADMIN_P
 # checkout's own CA, then whatever SSL_CERT_FILE names (README already sets that
 # to this same file for `make dev-backend`).
 if [ -n "${KC_CACERT:-}" ]; then
-  :
+  # A relative KC_CACERT is the caller's, so try their directory too.
+  case "$KC_CACERT" in
+    /*) ;;
+    *) [ -r "$KC_CACERT" ] || [ ! -r "$INVOKED_FROM/$KC_CACERT" ] ||
+         KC_CACERT="$INVOKED_FROM/$KC_CACERT" ;;
+  esac
 elif [ -r "$INFRA_CA" ]; then
   KC_CACERT="$INFRA_CA"
 else
