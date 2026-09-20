@@ -36,7 +36,7 @@ DIST ?= dist
         dev-backend dev-frontend backend frontend \
         lint lint-backend lint-frontend format format-check typecheck \
         test test-backend test-unit test-integration test-regression test-frontend \
-        snapshot coverage coverage-backend coverage-frontend \
+        snapshot minio-test-up minio-test-down coverage coverage-backend coverage-frontend \
         build build-backend build-frontend preview \
         up pull down delete webhook stack-selftest deploy keycloak-client minio \
         runner-env check-runner-env runner-up runner-down runner-restart \
@@ -126,6 +126,15 @@ test-unit: $(PY) ## Backend unit tests (everything faked, no services needed)
 
 test-regression: $(PY) ## Backend regression tests (pinned bugs + API contract)
 	cd $(BACKEND) && .venv/bin/python -m pytest -m regression $(ARGS)
+
+test-integration: $(PY) ## Backend integration tests (needs MinIO; `make minio-test-up`)
+	cd $(BACKEND) && .venv/bin/python -m pytest -m integration $(ARGS)
+
+minio-test-up: ## Start the MinIO the integration suite runs against
+	docker compose -f docker-compose.test.yml up -d --wait
+
+minio-test-down: ## Stop that MinIO and drop its data
+	docker compose -f docker-compose.test.yml down -v
 
 snapshot: $(PY) ## Rewrite the pinned OpenAPI snapshot after an intended API change
 	cd $(BACKEND) && .venv/bin/python -m tests.regression.test_openapi_contract

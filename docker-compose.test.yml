@@ -1,0 +1,21 @@
+# MinIO on its own, for the integration suite. Nothing else in this project
+# needs a local service, so this file stays deliberately small.
+#
+#   make minio-test-up && make test-integration && make minio-test-down
+#
+# The credentials are the MinIO defaults and only ever exist on a developer's
+# machine and on the CI runner: the real deployment's keys come from Portainer.
+services:
+  minio:
+    image: minio/minio
+    command: server /data
+    ports:
+      - "9000:9000"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
