@@ -124,6 +124,9 @@ test-backend: $(PY) ## pytest; pass extra args with ARGS="tests/test_health.py -
 test-unit: $(PY) ## Backend unit tests (everything faked, no services needed)
 	cd $(BACKEND) && .venv/bin/python -m pytest -m unit $(ARGS)
 
+test-regression: $(PY) ## Backend regression tests (pinned bugs + API contract)
+	cd $(BACKEND) && .venv/bin/python -m pytest -m regression $(ARGS)
+
 coverage: $(PY) ## pytest with coverage, failing under COVERAGE_MIN%
 	cd $(BACKEND) && .venv/bin/python -m pytest \
 		--cov=app --cov-report=term-missing --cov-report=xml \

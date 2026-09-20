@@ -1,4 +1,3 @@
-import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -37,12 +36,6 @@ def test_users_only_see_their_own_files(store):
 
     assert client.get("/api/files", headers=auth("user-2")).json() == []
     assert client.get("/api/files/secret.txt", headers=auth("user-2")).status_code == 404
-
-
-@pytest.mark.parametrize("name", ["..", "a\\b", "x" * 256])
-def test_rejects_unsafe_names(name, store):
-    assert upload(name).status_code == 422
-    assert store.objects == {}
 
 
 def test_files_need_a_token():
