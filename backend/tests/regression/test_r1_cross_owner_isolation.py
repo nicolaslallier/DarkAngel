@@ -1,21 +1,32 @@
-"""Regression — spec risk R-1, ownership isolation.
+"""Regression — spec risk R-1, ownership isolation, ROUTE layer only.
 
 Before the metadata moved to Postgres, isolation was structural: a user's
 objects lived under a MinIO key prefixed with their `sub`, so there was no
-query to get wrong. Now every route reaches a row through
-`FileRepository`, and isolation is only as good as `WHERE owner_sub = ...`
-in that one module -- a missing clause in any query or any future route
-would let one user reach another user's file.
+query to get wrong. Now every route reaches a row through `FileRepository`,
+and isolation is only as good as `WHERE owner_sub = ...` in that one module.
 
-`docs/files-feature.md` names this as the highest-consequence risk in the
-spec (R-1) and says it is mitigated by the single repository module *and* a
-standing cross-user regression test. This file is that test. Every
-assertion below must keep passing forever: if one of them ever fails, that
-is a real cross-tenant data leak, not a test to be relaxed.
+This file runs against `FakeFileRepository` (the `repo` fixture), an
+in-memory stand-in that filters by `owner_sub` in Python. It does NOT
+exercise the real SQL `WHERE owner_sub = ...` clause -- a regression that
+dropped that clause from `FileRepository` itself would NOT be caught here,
+because the fake has its own, separately-written filter. What this file
+does pin is the ROUTE layer: every file route passes the CALLER's
+`claims["sub"]` through to the repository rather than, say, a value taken
+from the request body or path, and cross-owner access comes back as 404,
+never 403 (a 403 would confirm the id exists).
 
-Covers, for user-2 against user-1's file:
+The SQL-layer half of R-1 -- that `FileRepository`'s queries themselves
+never cross owners -- is pinned separately, against real PostgreSQL, by
+`tests/integration/test_repository.py::test_list_and_get_never_cross_owners`
+and `::test_find_by_name_never_crosses_owners`. `docs/files-feature.md`
+names a standing regression test as one of R-1's two mitigations (the other
+being the single repository module); it takes both this file and those two
+integration tests together to cover it end to end -- neither layer alone is
+sufficient, and this file does not close R-1 by itself.
+
+Covers, for user-2 against user-1's file, at the route layer:
 - list does not include it
-- get by id is a 404 (not a 403 -- a 403 would confirm the id exists)
+- get by id is a 404 (not a 403)
 - content by id is a 404
 - delete by id is a 404, and the file is still listed for user-1 afterwards
 - a same-name upload creates a separate file rather than versioning it

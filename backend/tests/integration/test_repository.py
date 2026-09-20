@@ -130,6 +130,17 @@ def test_find_by_name_matches_only_live_ready_files(repository):
     assert repository.find_by_name("user-1", "notes.txt", None) is None
 
 
+def test_find_by_name_never_crosses_owners(repository):
+    """R-1, SQL layer: BR-2 versioning routes a same-name upload through
+    `find_by_name`, so a missing owner filter here would let one user's
+    upload append a version onto another user's file."""
+    row = reserve(repository, owner="user-1", name="notes.txt")
+    repository.finalize(row, s3_version_id="v", actor_sub="user-1")
+
+    assert repository.find_by_name("user-2", "notes.txt", None) is None
+    assert repository.find_by_name("user-1", "notes.txt", None).id == row.id
+
+
 def test_sweep_pending_only_takes_stale_rows(repository, db):
     fresh = reserve(repository, name="fresh.txt")
     stale = reserve(repository, name="stale.txt")
