@@ -37,7 +37,7 @@ DIST ?= dist
         dev-backend dev-frontend backend frontend \
         lint lint-backend lint-frontend format format-check typecheck \
         test test-backend test-unit test-integration test-regression test-frontend \
-        snapshot services-test-up services-test-down coverage coverage-backend coverage-frontend \
+        snapshot services-test-up services-test-down migrate coverage coverage-backend coverage-frontend \
         build build-backend build-frontend preview \
         up pull down delete webhook stack-selftest deploy keycloak-client minio postgres \
         runner-env check-runner-env runner-up runner-down runner-restart \
@@ -165,6 +165,9 @@ services-test-up: ## Start the services the integration suite runs against (MinI
 
 services-test-down: ## Stop those services and drop their data
 	docker compose -f docker-compose.test.yml down -v
+
+migrate: $(PY) ## Apply pending Alembic migrations to DARKANGEL_DATABASE_URL
+	cd $(BACKEND) && .venv/bin/python -m alembic upgrade head
 
 snapshot: $(PY) ## Rewrite the pinned OpenAPI snapshot after an intended API change
 	cd $(BACKEND) && .venv/bin/python -m tests.regression.test_openapi_contract
