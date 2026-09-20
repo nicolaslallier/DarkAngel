@@ -12,6 +12,7 @@ coverage.xml
 node_modules/
 dist/
 coverage/
+reports/
 
 # Env
 .env

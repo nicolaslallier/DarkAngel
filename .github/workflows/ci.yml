@@ -9,9 +9,13 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Kept in step with COVERAGE_MIN in the Makefile.
+  COVERAGE_MIN: "80"
+
 jobs:
-  backend:
-    name: Backend (pytest + ruff)
+  backend-unit:
+    name: Backend unit + regression
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,10 +35,98 @@ jobs:
         run: .venv/bin/python -m ruff check .
 
       - name: Test
-        run: .venv/bin/python -m pytest
+        run: |
+          .venv/bin/python -m pytest -m "unit or regression" \
+            --junitxml=reports/junit.xml \
+            --cov=app --cov-report=term-missing --cov-report=xml \
+            --cov-fail-under="$COVERAGE_MIN"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Backend unit + regression" >> "$GITHUB_STEP_SUMMARY"
+          .venv/bin/python -m coverage report --format=markdown \
+            >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-unit-reports
+          path: |
+            backend/reports/junit.xml
+            backend/coverage.xml
+          if-no-files-found: warn
+
+  backend-integration:
+    name: Backend integration (real MinIO)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # `CI` makes an unreachable MinIO fail the job instead of skipping it.
+      CI: "true"
+      DARKANGEL_S3_ENDPOINT: localhost:9000
+      DARKANGEL_S3_ACCESS_KEY: minioadmin
+      DARKANGEL_S3_SECRET_KEY: minioadmin
+      DARKANGEL_S3_SECURE: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Create virtualenv and install
+        run: |
+          uv venv --python 3.11
+          uv pip install -e ".[dev]"
+
+      - name: Start MinIO
+        # A plain container, not a service container: those cannot pass the
+        # `server /data` command the MinIO image needs.
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
+
+      - name: Wait for MinIO
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:9000/minio/health/ready >/dev/null; then
+              echo "MinIO is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "MinIO never became ready" >&2
+          docker logs minio >&2
+          exit 1
+
+      - name: Test
+        run: .venv/bin/python -m pytest -m integration --junitxml=reports/junit.xml
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Backend integration" >> "$GITHUB_STEP_SUMMARY"
+          echo "Ran against MinIO at $DARKANGEL_S3_ENDPOINT." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: MinIO logs on failure
+        if: failure()
+        run: docker logs minio
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-integration-reports
+          path: backend/reports/junit.xml
+          if-no-files-found: warn
 
   frontend:
-    name: Frontend (vue-tsc + vite build)
+    name: Frontend (vitest + vue-tsc + vite build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -50,4 +142,28 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run build
+      - name: Test
+        run: |
+          npm run test:coverage -- \
+            --reporter=default --reporter=junit \
+            --outputFile.junit=reports/junit.xml
+
+      # `npm run build` is `vue-tsc -b && vite build`, so this type-checks too.
+      - name: Build
+        run: npm run build
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Frontend" >> "$GITHUB_STEP_SUMMARY"
+          echo "vitest + vue-tsc + vite build." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-reports
+          path: |
+            frontend/reports/junit.xml
+            frontend/coverage/lcov.info
+          if-no-files-found: warn

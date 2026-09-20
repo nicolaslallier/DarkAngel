@@ -116,7 +116,9 @@ format: $(PY) ## Apply ruff formatting and import fixes to the backend
 format-check: $(PY) ## Fail if the backend is not formatted (CI gate)
 	cd $(BACKEND) && .venv/bin/python -m ruff format --check .
 
-test: test-backend ## Run the test suites
+# One pytest process per suite on purpose: the integration fixture rewrites
+# DARKANGEL_S3_* in the environment, which must not reach the other suites.
+test: test-unit test-integration test-regression test-frontend ## Run every suite
 
 test-backend: $(PY) ## pytest; pass extra args with ARGS="tests/test_health.py -k ok"
 	cd $(BACKEND) && .venv/bin/python -m pytest $(ARGS)
@@ -145,7 +147,9 @@ minio-test-down: ## Stop that MinIO and drop its data
 snapshot: $(PY) ## Rewrite the pinned OpenAPI snapshot after an intended API change
 	cd $(BACKEND) && .venv/bin/python -m tests.regression.test_openapi_contract
 
-coverage: $(PY) ## pytest with coverage, failing under COVERAGE_MIN%
+coverage: coverage-backend coverage-frontend ## Coverage for both sides
+
+coverage-backend: $(PY) ## Backend coverage over every suite, failing under COVERAGE_MIN%
 	cd $(BACKEND) && .venv/bin/python -m pytest \
 		--cov=app --cov-report=term-missing --cov-report=xml \
 		--cov-fail-under=$(COVERAGE_MIN)
