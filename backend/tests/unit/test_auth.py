@@ -21,4 +21,3 @@ def test_me_returns_the_caller():
         "email": None,
         "roles": ["ea-editor"],
     }
-

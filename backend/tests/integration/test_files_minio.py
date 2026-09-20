@@ -16,9 +16,7 @@ def auth(sub="user-1"):
 
 
 def upload(name, data=b"hello", sub="user-1", content_type="text/plain"):
-    return client.post(
-        "/api/files", headers=auth(sub), files={"file": (name, data, content_type)}
-    )
+    return client.post("/api/files", headers=auth(sub), files={"file": (name, data, content_type)})
 
 
 def test_upload_list_download_delete_round_trip():
