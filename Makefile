@@ -37,7 +37,7 @@ DIST ?= dist
         lint lint-backend lint-frontend format format-check typecheck \
         test test-backend coverage \
         build build-backend build-frontend preview \
-        up pull down delete webhook stack-selftest deploy keycloak-client \
+        up pull down delete webhook stack-selftest deploy keycloak-client minio \
         runner-env check-runner-env runner-up runner-down runner-restart \
         runner-logs runner-status runner-pull runner-shell \
         up-local down-local restart ps logs \
@@ -187,6 +187,9 @@ stack-selftest: ## Check portainer-stack.sh's helpers without calling Portainer
 
 keycloak-client: ## Create/update the darkangel-spa client in Keycloak realm ea (INFRA_ENV, KC_CACERT)
 	@scripts/provision-keycloak-client.sh
+
+minio: ## Create/update the Infra MinIO bucket + user home files live in (INFRA_ENV, .portainer.env)
+	@scripts/provision-minio.sh
 
 # The webhook only redeploys; stopping the stack is `make down`, and creating
 # one is `make up`. deploy.yml prefers the API path (PORTAINER_API_KEY), which

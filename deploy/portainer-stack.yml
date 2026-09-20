@@ -6,6 +6,7 @@
 # Stack environment variables (Portainer -> Stack -> Environment variables):
 #   IMAGE_OWNER    GHCR namespace, lowercase   (default: nicolaslallier)
 #   IMAGE_TAG      image tag to run            (default: latest)
+#   MINIO_SECRET_KEY  secret of MinIO user darkangel-api (see `make minio`)
 #
 # The GitHub Actions deploy workflow pushes new images and then calls this
 # stack's webhook, which re-pulls the tag and recreates the services.
@@ -37,6 +38,10 @@ services:
       # are read from Keycloak directly over infra-net, so the container needs
       # no copy of the Infra CA to trust the public hostname.
       DARKANGEL_AUTH_JWKS_URL: http://keycloak:8080/realms/ea/protocol/openid-connect/certs
+      # Home files go to the Infra MinIO (`minio:9000` on infra-net), bucket
+      # darkangel-files as MinIO user darkangel-api -- both made by `make minio`.
+      # MINIO_SECRET_KEY is a stack variable `make up` copies from .portainer.env.
+      DARKANGEL_S3_SECRET_KEY: ${MINIO_SECRET_KEY:-}
     expose:
       - "8000"
     # Named for infra-net, which every app on this host shares: a plain

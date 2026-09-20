@@ -8,6 +8,7 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'home', component: HomeView },
     // Lazy-loaded so it ships in its own chunk.
+    { path: '/files', name: 'files', component: () => import('@/views/FilesView.vue') },
     { path: '/about', name: 'about', component: () => import('@/views/AboutView.vue') },
     {
       path: '/auth/callback',

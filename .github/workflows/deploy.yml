@@ -95,6 +95,11 @@ jobs:
           # Fallback for a stack that already exists: its redeploy webhook,
           # as printed by `make webhook`.
           WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
+          # The API path rewrites the stack's whole Env list on every deploy,
+          # so the MinIO secret has to be sent with it -- left out, each run
+          # would blank it and the Files page would stop working. The same
+          # value `make minio` gave the darkangel-api MinIO user.
+          MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
           # Optional overrides, all repository variables.
           PORTAINER_URL: ${{ vars.PORTAINER_URL }}
           PORTAINER_INSECURE: ${{ vars.PORTAINER_INSECURE }}

@@ -41,11 +41,14 @@ Python environment for this project, so always call tools through `.venv/bin/`.
   `get_settings()`, never by instantiating `Settings()` directly.
 - `core/auth.py` — Keycloak (realm `ea`) bearer-token check. Protect a route by
   taking the `Claims` dependency; `/api/health` is the only public route.
+- `api/routes/files.py` — home files in the Infra MinIO (bucket `darkangel-files`,
+  provisioned by `make minio`), keyed `<sub>/<name>` so users see only their own.
+  Tests swap `minio_client()` for an in-memory fake.
 
 **Frontend** (`frontend/src/`)
 
-- `api/client.ts` — the only place `fetch` is called; it attaches the Keycloak
-  access token. Per-resource modules (`api/health.ts`) wrap it and own the
+- `api/client.ts` — the only place `fetch` is called (`apiRequest`, `apiGet`); it
+  attaches the Keycloak access token. Per-resource modules (`api/health.ts`) wrap it and own the
   response types.
 - `auth.ts` — the `oidc-client-ts` `UserManager` (client `darkangel-spa`); the
   router's `beforeEach` sends every non-`meta.public` route through login.

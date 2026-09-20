@@ -53,12 +53,15 @@ die() { printf 'portainer-stack.sh: %b\n' "$*" >&2; exit 1; }
 note() { printf 'portainer-stack.sh: %b\n' "$*"; }
 
 # The stack's environment variables, as Portainer's [{name,value}] shape.
-# deploy/portainer-stack.yml reads exactly these two; every other variable in
-# the environment stays out, so nothing unrelated leaks into the stack.
-stack_env() { # <image-owner> <image-tag>
-  jq -n --arg owner "$1" --arg tag "$2" \
+# deploy/portainer-stack.yml reads exactly these; every other variable in the
+# environment stays out, so nothing unrelated leaks into the stack. Portainer
+# replaces the whole list on each deploy, so a value set by hand in its UI would
+# not survive the next `make up` -- the MinIO secret has to come through here.
+stack_env() { # <image-owner> <image-tag> <minio-secret-key>
+  jq -n --arg owner "$1" --arg tag "$2" --arg minio "$3" \
     '[{name: "IMAGE_OWNER", value: $owner},
-      {name: "IMAGE_TAG", value: $tag}]'
+      {name: "IMAGE_TAG", value: $tag},
+      {name: "MINIO_SECRET_KEY", value: $minio}]'
 }
 
 gen_uuid() {
@@ -75,10 +78,10 @@ gen_uuid() {
 
 selftest() {
   local got want
-  got="$(stack_env nicolaslallier latest | jq -c .)"
-  want='[{"name":"IMAGE_OWNER","value":"nicolaslallier"},{"name":"IMAGE_TAG","value":"latest"}]'
+  got="$(stack_env nicolaslallier latest s3cret | jq -c .)"
+  want='[{"name":"IMAGE_OWNER","value":"nicolaslallier"},{"name":"IMAGE_TAG","value":"latest"},{"name":"MINIO_SECRET_KEY","value":"s3cret"}]'
   [ "$got" = "$want" ] || die "selftest: stack_env\n  got:  $got\n  want: $want"
-  got="$(stack_env 'o w' 'sha-1234' | jq -r '.[1].value')"
+  got="$(stack_env 'o w' 'sha-1234' '' | jq -r '.[1].value')"
   [ "$got" = sha-1234 ] || die "selftest: stack_env did not carry the tag through"
   case "$(gen_uuid)" in
     [0-9a-f]*-*-*-*-*) ;;
@@ -193,7 +196,9 @@ sid=""
 
 case "$cmd" in
   up|pull)
-    env="$(stack_env "$IMAGE_OWNER" "$IMAGE_TAG")"
+    [ -n "${MINIO_SECRET_KEY:-}" ] && [ "$MINIO_SECRET_KEY" != change-me ] ||
+      note "MINIO_SECRET_KEY is not set in .portainer.env: the Files page will fail (see 'make minio')"
+    env="$(stack_env "$IMAGE_OWNER" "$IMAGE_TAG" "${MINIO_SECRET_KEY:-}")"
     if [ -z "$sid" ]; then
       [ "$cmd" = up ] || die "stack '$STACK' does not exist yet -- 'make up' first"
       hook="$(gen_uuid)"
