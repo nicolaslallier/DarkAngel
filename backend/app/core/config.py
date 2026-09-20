@@ -14,6 +14,24 @@ class Settings(BaseSettings):
     # Origins allowed to call the API (the Vite dev server by default).
     cors_origins: list[str] = ["http://localhost:5173"]
 
+    # Keycloak realm `ea`. Tokens must carry this exact `iss` (Keycloak pins it to
+    # the public URL via KC_HOSTNAME) and the audience the darkangel-spa client's
+    # mapper stamps on them.
+    auth_issuer: str = "https://keycloak.famillelallier.net/realms/ea"
+    auth_audience: str = "darkangel-api"
+    # Where the signing keys are fetched; defaults to the issuer's certs endpoint.
+    # The stack points it at http://keycloak:8080 on infra-net, which avoids
+    # trusting the Infra CA for the public hostname from inside the container.
+    auth_jwks_url: str | None = None
+
+    # Home files, in the Infra MinIO: plain HTTP `minio:9000` on infra-net. The
+    # bucket and its scoped user are made by `make minio` (scripts/provision-minio.sh).
+    s3_endpoint: str = "minio:9000"
+    s3_secure: bool = False
+    s3_bucket: str = "darkangel-files"
+    s3_access_key: str = "darkangel-api"
+    s3_secret_key: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

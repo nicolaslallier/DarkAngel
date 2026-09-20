@@ -2,10 +2,12 @@
 import { onMounted } from 'vue'
 
 import { useHealthStore } from '@/stores/health'
+import { useMeStore } from '@/stores/me'
 
 const store = useHealthStore()
+const meStore = useMeStore()
 
-onMounted(() => store.load())
+onMounted(() => Promise.all([store.load(), meStore.load()]))
 </script>
 
 <template>
@@ -15,6 +17,11 @@ onMounted(() => store.load())
     <p v-else-if="store.error" class="error">Backend unreachable: {{ store.error }}</p>
     <p v-else-if="store.health">
       Backend status: <strong>{{ store.health.status }}</strong> (v{{ store.health.version }})
+    </p>
+
+    <p v-if="meStore.error" class="error">API rejected the session: {{ meStore.error }}</p>
+    <p v-else-if="meStore.me">
+      Signed in as <strong>{{ meStore.me.username ?? meStore.me.sub }}</strong>
     </p>
   </section>
 </template>

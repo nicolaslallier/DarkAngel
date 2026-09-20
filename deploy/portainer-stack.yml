@@ -1,0 +1,74 @@
+# DarkAngel stack for Portainer.
+#
+# Deploy this as a Portainer stack (Stacks -> Add stack). Point it at this file
+# via the "Repository" build method, or paste it in with the Web editor.
+#
+# Stack environment variables (Portainer -> Stack -> Environment variables):
+#   IMAGE_OWNER    GHCR namespace, lowercase   (default: nicolaslallier)
+#   IMAGE_TAG      image tag to run            (default: latest)
+#   MINIO_SECRET_KEY  secret of MinIO user darkangel-api (see `make minio`)
+#
+# The GitHub Actions deploy workflow pushes new images and then calls this
+# stack's webhook, which re-pulls the tag and recreates the services.
+#
+# There is no web server in this stack: the Infra stack's NGINX
+# (github.com/nicolaslallier/Infra) is the one that serves DarkAngel at
+# https://darkangel.infra.famillelallier.net. It reads the SPA's files from the
+# shared `darkangel-web` volume that web-assets fills, and proxies /api/ to
+# darkangel-api over infra-net -- see deploy/nginx/darkangel.conf for the vhost
+# to install there, including the two lines the Infra compose needs for the
+# volume.
+#
+# Both the network and the volume are external, because the Infra stack is the
+# other end of each: `docker volume create darkangel-web` once (make up-local
+# does it), and the Infra stack owns infra-net.
+
+services:
+  darkangel-api:
+    image: ghcr.io/${IMAGE_OWNER:-nicolaslallier}/darkangel-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      DARKANGEL_DEBUG: "false"
+      # The SPA and the API answer on the same origin through the Infra NGINX,
+      # so the browser never makes a cross-origin call. Add origins here if the
+      # API grows callers of its own.
+      DARKANGEL_CORS_ORIGINS: '[]'
+      # Tokens are still checked against the public issuer
+      # (https://keycloak.famillelallier.net/realms/ea); only the signing keys
+      # are read from Keycloak directly over infra-net, so the container needs
+      # no copy of the Infra CA to trust the public hostname.
+      DARKANGEL_AUTH_JWKS_URL: http://keycloak:8080/realms/ea/protocol/openid-connect/certs
+      # Home files go to the Infra MinIO (`minio:9000` on infra-net), bucket
+      # darkangel-files as MinIO user darkangel-api -- both made by `make minio`.
+      # MINIO_SECRET_KEY is a stack variable `make up` copies from .portainer.env.
+      DARKANGEL_S3_SECRET_KEY: ${MINIO_SECRET_KEY:-}
+    expose:
+      - "8000"
+    # Named for infra-net, which every app on this host shares: a plain
+    # `backend` alias would collide with the next stack's. The API router is
+    # mounted at /api (backend/app/api/router.py), so the vhost passes the
+    # prefix straight through.
+    networks:
+      - infra-net
+
+  web-assets:
+    image: ghcr.io/${IMAGE_OWNER:-nicolaslallier}/darkangel-frontend:${IMAGE_TAG:-latest}
+    # One-shot: it copies the built SPA into darkangel-web and exits, so a
+    # redeploy republishes the new build and the container stays down after.
+    # Exited is the healthy steady state here -- `make ps` shows it as such.
+    restart: "no"
+    # It talks to nothing; the volume is its only contact with the rest.
+    network_mode: none
+    volumes:
+      - darkangel-web:/srv/darkangel
+
+networks:
+  # Created by the Infra stack; `make up-local` creates it if it is missing.
+  infra-net:
+    external: true
+
+volumes:
+  # Shared with the Infra stack's NGINX, which mounts it read-only at
+  # /srv/darkangel and serves /srv/darkangel/current.
+  darkangel-web:
+    external: true
