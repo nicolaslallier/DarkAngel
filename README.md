@@ -38,13 +38,21 @@ served separately from the backend.
 ## Checks
 
 ```sh
-make test          # pytest
-make coverage      # pytest with coverage, fails under 80%
-make lint          # ruff check + vue-tsc
-make format        # apply ruff formatting
-make format-check  # fail if the backend is unformatted
-make build         # backend wheel + vue-tsc/vite build
+make test              # every suite: unit, integration, regression, frontend
+make test-unit         # backend unit only (no services needed)
+make test-integration  # backend integration (needs `make minio-test-up`)
+make test-regression   # backend regression: pinned bugs + OpenAPI contract
+make test-frontend     # vitest
+make coverage          # both sides, backend fails under 80%
+make snapshot          # rewrite the OpenAPI snapshot after an intended change
+make lint              # ruff check + vue-tsc
+make format            # apply ruff formatting
+make format-check      # fail if the backend is unformatted
+make build             # backend wheel + vue-tsc/vite build
 ```
+
+See [docs/testing.md](docs/testing.md) for what each suite is for, how the
+directory decides the marker, and how to write a regression test.
 
 ## CI/CD
 
