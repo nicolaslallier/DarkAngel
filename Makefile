@@ -36,7 +36,8 @@ DIST ?= dist
         install install-backend install-frontend install-ci \
         dev-backend dev-frontend backend frontend \
         lint lint-backend lint-frontend format format-check typecheck \
-        test test-backend coverage \
+        test test-backend test-unit test-integration test-regression test-frontend \
+        snapshot minio-test-up minio-test-down coverage coverage-backend coverage-frontend \
         build build-backend build-frontend preview \
         up pull down delete webhook stack-selftest deploy keycloak-client minio \
         runner-env check-runner-env runner-up runner-down runner-restart \
@@ -137,15 +138,49 @@ format: $(PY) ## Apply ruff formatting and import fixes to the backend
 format-check: $(PY) ## Fail if the backend is not formatted (CI gate)
 	cd $(BACKEND) && .venv/bin/python -m ruff format --check .
 
-test: test-backend ## Run the test suites
+# One pytest process per suite on purpose: the integration fixture rewrites
+# DARKANGEL_S3_* in the environment, which must not reach the other suites.
+test: test-unit test-integration test-regression test-frontend ## Run every suite
 
-test-backend: $(PY) ## pytest; pass extra args with ARGS="tests/test_health.py -k ok"
+test-backend: $(PY) ## pytest; pass extra args with ARGS="tests/unit/test_health.py -k ok"
 	cd $(BACKEND) && .venv/bin/python -m pytest $(ARGS)
 
-coverage: $(PY) ## pytest with coverage, failing under COVERAGE_MIN%
-	cd $(BACKEND) && .venv/bin/python -m pytest \
-		--cov=app --cov-report=term-missing --cov-report=xml \
-		--cov-fail-under=$(COVERAGE_MIN)
+test-unit: $(PY) ## Backend unit tests (everything faked, no services needed)
+	cd $(BACKEND) && .venv/bin/python -m pytest -m unit $(ARGS)
+
+test-regression: $(PY) ## Backend regression tests (pinned bugs + API contract)
+	cd $(BACKEND) && .venv/bin/python -m pytest -m regression $(ARGS)
+
+test-integration: $(PY) ## Backend integration tests (needs MinIO; `make minio-test-up`)
+	cd $(BACKEND) && .venv/bin/python -m pytest -m integration $(ARGS)
+
+test-frontend: ## Frontend unit, component and regression tests (vitest)
+	cd $(FRONTEND) && $(NPM) run test
+
+coverage-frontend: ## Frontend coverage report (text + lcov)
+	cd $(FRONTEND) && $(NPM) run test:coverage
+
+minio-test-up: ## Start the MinIO the integration suite runs against
+	docker compose -f docker-compose.test.yml up -d --wait
+
+minio-test-down: ## Stop that MinIO and drop its data
+	docker compose -f docker-compose.test.yml down -v
+
+snapshot: $(PY) ## Rewrite the pinned OpenAPI snapshot after an intended API change
+	cd $(BACKEND) && .venv/bin/python -m tests.regression.test_openapi_contract
+
+coverage: coverage-backend coverage-frontend ## Coverage for both sides
+
+# Three pytest processes, not one: same reason as `test` above. Each run adds
+# to the same .coverage (erased first, so a stale run can't inflate this one);
+# the combined total is what --fail-under and the XML report are built from.
+coverage-backend: $(PY) ## Backend coverage over every suite, failing under COVERAGE_MIN%
+	rm -f $(BACKEND)/.coverage
+	cd $(BACKEND) && .venv/bin/python -m pytest -m unit --cov=app --cov-append
+	cd $(BACKEND) && .venv/bin/python -m pytest -m regression --cov=app --cov-append
+	cd $(BACKEND) && .venv/bin/python -m pytest -m integration --cov=app --cov-append
+	cd $(BACKEND) && .venv/bin/python -m coverage report --show-missing --fail-under=$(COVERAGE_MIN)
+	cd $(BACKEND) && .venv/bin/python -m coverage xml
 
 ## === build ===
 

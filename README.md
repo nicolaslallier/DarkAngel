@@ -38,22 +38,32 @@ served separately from the backend.
 ## Checks
 
 ```sh
-make test          # pytest
-make coverage      # pytest with coverage, fails under 80%
-make lint          # ruff check + vue-tsc
-make format        # apply ruff formatting
-make format-check  # fail if the backend is unformatted
-make build         # backend wheel + vue-tsc/vite build
+make test              # every suite: unit, integration, regression, frontend
+make test-unit         # backend unit only (no services needed)
+make test-integration  # backend integration (needs `make minio-test-up`)
+make test-regression   # backend regression: pinned bugs + OpenAPI contract
+make test-frontend     # vitest
+make coverage          # both sides, backend fails under 80%
+make snapshot          # rewrite the OpenAPI snapshot after an intended change
+make lint              # ruff check + vue-tsc
+make format            # apply ruff formatting
+make format-check      # fail if the backend is unformatted
+make build             # backend wheel + vue-tsc/vite build
 ```
+
+See [docs/testing.md](docs/testing.md) for what each suite is for, how the
+directory decides the marker, and how to write a regression test.
 
 ## CI/CD
 
-`make` is the single entrypoint; `.github/workflows/ci.yml` only calls these
-targets, so the pipeline runs identically on a laptop and on a runner.
+`.github/workflows/ci.yml` calls no make target — it runs the same underlying
+tools (ruff, pytest, vitest, vue-tsc, vite build) directly, plus a backend
+coverage gate (`--cov-fail-under`) that `make coverage` reproduces locally.
+`make verify` is the closest local equivalent of that gate.
 
 ```sh
-make ci        # what CI runs: install-ci, then the full gate
-make verify    # the same gate against an existing install (faster, local)
+make verify    # local equivalent of the CI gate, against an existing install
+make coverage  # both sides; backend fails under COVERAGE_MIN, same as CI's gate
 make release   # build and collect artifacts into dist/
 ```
 
