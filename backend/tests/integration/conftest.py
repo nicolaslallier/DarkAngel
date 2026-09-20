@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from minio.versioningconfig import ENABLED, VersioningConfig
 from sqlalchemy import text as sa_text
 
 from app.api.routes import files
@@ -78,12 +79,21 @@ def minio_bucket():
             pytest.skip(reason)
 
         client.make_bucket(settings.s3_bucket)
+        # Production enables versioning (provision-minio.sh); the throwaway
+        # bucket must match, or put_object returns no version_id and the
+        # file_versions rows would all record an empty string.
+        client.set_bucket_versioning(settings.s3_bucket, VersioningConfig(ENABLED))
         try:
             yield settings.s3_bucket
         finally:
             # Teardown runs even when a test failed mid-upload, so nothing leaks.
-            for obj in client.list_objects(settings.s3_bucket, recursive=True):
-                client.remove_object(settings.s3_bucket, obj.object_name)
+            # Versioning is enabled above, so a plain listing only shows the
+            # current version of each key -- remove_bucket needs every version
+            # and delete marker gone, or it refuses with BucketNotEmpty.
+            for obj in client.list_objects(
+                settings.s3_bucket, recursive=True, include_version=True
+            ):
+                client.remove_object(settings.s3_bucket, obj.object_name, version_id=obj.version_id)
             client.remove_bucket(settings.s3_bucket)
     finally:
         restore()
