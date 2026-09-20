@@ -227,3 +227,68 @@ def test_a_versioning_upload_still_respects_the_quota(repo, store, monkeypatch):
     )
 
     assert response.status_code == 413
+
+
+def test_content_streams_the_bytes_as_an_attachment(repo, store):
+    created = upload(name="bail été.txt", data=b"hello").json()
+
+    response = client.get(f"/api/files/{created['id']}/content", headers=auth())
+
+    assert response.status_code == 200
+    assert response.content == b"hello"
+    assert response.headers["content-disposition"] == (
+        "attachment; filename*=UTF-8''bail%20%C3%A9t%C3%A9.txt"
+    )
+
+
+def test_a_name_with_a_slash_is_fully_escaped_in_the_header(repo, store):
+    # quote() leaves '/' alone by default, which would split the header value.
+    created = upload(name="a/b.txt").json()
+
+    response = client.get(f"/api/files/{created['id']}/content", headers=auth())
+
+    assert response.headers["content-disposition"] == "attachment; filename*=UTF-8''a%2Fb.txt"
+
+
+def test_an_allow_listed_type_may_be_served_inline(repo, store):
+    created = upload(name="shot.png", data=b"\x89PNG", content_type="image/png").json()
+
+    response = client.get(f"/api/files/{created['id']}/content?disposition=inline", headers=auth())
+
+    assert response.headers["content-disposition"].startswith("inline;")
+    assert response.headers["content-type"].startswith("image/png")
+
+
+def test_anything_else_is_forced_to_attachment(repo, store):
+    created = upload(
+        name="sheet.docx",
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ).json()
+
+    response = client.get(f"/api/files/{created['id']}/content?disposition=inline", headers=auth())
+
+    assert response.headers["content-disposition"].startswith("attachment;")
+    assert response.headers["content-type"].startswith("application/octet-stream")
+
+
+def test_every_content_response_carries_the_hardening_headers(repo, store):
+    created = upload().json()
+
+    response = client.get(f"/api/files/{created['id']}/content", headers=auth())
+
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["content-security-policy"] == "sandbox"
+
+
+def test_content_hides_another_owners_file_behind_404(repo, store):
+    created = upload().json()
+
+    assert (
+        client.get(f"/api/files/{created['id']}/content", headers=auth("user-2")).status_code == 404
+    )
+
+
+def test_content_needs_a_token(repo, store):
+    created = upload().json()
+
+    assert client.get(f"/api/files/{created['id']}/content").status_code == 401

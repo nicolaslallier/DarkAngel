@@ -1,10 +1,14 @@
 import os
 import uuid
+from collections.abc import Iterator
 from contextlib import suppress
 from datetime import datetime
 from functools import lru_cache
+from typing import Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
 from minio import Minio
 from minio.error import S3Error
 from pydantic import BaseModel
@@ -195,3 +199,50 @@ def get_file(claims: Claims, repo: FileRepo, file_id: uuid.UUID) -> FileInfo:
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such file")
     return FileInfo.of(row)
+
+
+@router.get("/{file_id}/content")
+def download_file(
+    claims: Claims,
+    repo: FileRepo,
+    file_id: uuid.UUID,
+    disposition: Literal["attachment", "inline"] = "attachment",
+) -> StreamingResponse:
+    row = repo.get(claims["sub"], file_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such file")
+
+    settings = get_settings()
+    # The SPA and the API share an origin, so anything rendered inline runs in
+    # it. Only the allow-list is ever rendered, and only the allow-list keeps
+    # its own content type -- everything else downloads as opaque bytes.
+    renderable = row.content_type in settings.inline_content_types
+    mode = "inline" if (disposition == "inline" and renderable) else "attachment"
+    served_type = row.content_type if renderable else "application/octet-stream"
+
+    try:
+        obj = minio_client().get_object(settings.s3_bucket, row.object_key)
+    except S3Error as e:
+        if e.code == "NoSuchKey":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "No such file") from e
+        raise
+
+    def chunks() -> Iterator[bytes]:
+        try:
+            yield from obj.stream(64 * 1024)
+        finally:
+            obj.close()
+            obj.release_conn()
+
+    return StreamingResponse(
+        chunks(),
+        media_type=served_type,
+        headers={
+            # safe="" matters: a display name may hold a '/' now, and quote()
+            # would otherwise leave it raw and split the header value.
+            "Content-Disposition": f"{mode}; filename*=UTF-8''{quote(row.name, safe='')}",
+            "Content-Length": obj.headers["Content-Length"],
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox",
+        },
+    )
