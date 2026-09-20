@@ -17,6 +17,8 @@ dist/
 .env.local
 # Portainer API token (Docker-daemon-root); see .portainer.env.example
 .portainer.env
+# GitHub PAT that may register self-hosted runners; see 'make runner-env'
+.runner.env
 
 # OS / editors
 .DS_Store

@@ -163,7 +163,9 @@ that repo — until that is done, DarkAngel is running but nothing routes to it.
 4. **Tell the workflow how to reach Portainer** — see the variables below. From
    a GitHub-hosted runner it uses the public origin
    (`https://portainer.infra.famillelallier.net`); if Portainer is not exposed
-   there, set `DEPLOY_RUNNER` to a self-hosted runner label instead.
+   there, a hosted runner cannot deploy at all — stand up the self-hosted runner
+   (`make runner-up`, see "Deploying from a self-hosted runner") and set
+   `DEPLOY_RUNNER` to `darkangel`.
 
 To drive the same stack from a laptop, copy `.portainer.env.example` to
 `.portainer.env` and put the same token in it (it is gitignored: the token is
@@ -188,10 +190,11 @@ WSL — cannot break the deploy.
 
 All optional:
 
-- `DEPLOY_RUNNER` — a self-hosted runner label. Set this when Portainer is only
-  reachable from inside your network; GitHub-hosted runners cannot reach it.
-  Defaults to `ubuntu-latest`. A self-hosted runner on the Docker host reaches
-  Portainer over `infra-net`, the way `make up` does from that network.
+- `DEPLOY_RUNNER` — a self-hosted runner label. Set it to `darkangel` when
+  Portainer is only reachable from inside your network; GitHub-hosted runners
+  cannot reach it. Defaults to `ubuntu-latest`. That runner is `make runner-up`
+  below, and on the Docker host it reaches Portainer over `infra-net`, the way
+  `make up` does from that network.
 - `PORTAINER_URL` — Portainer's API origin, when it is neither
   `https://portainer.infra.famillelallier.net` (GitHub-hosted runner) nor
   `https://portainer:9443` (self-hosted runner on `infra-net`).
@@ -229,3 +232,73 @@ Infra NGINX at `https://darkangel.infra.famillelallier.net` (API under `/api`).
 stops; only `darkangel-api` keeps running. On a host without that NGINX there is
 nothing to serve the SPA, so look at it with `make dev-backend` and
 `make dev-frontend` instead.
+
+### Deploying from a self-hosted runner
+
+Only needed when Portainer has **no public ingress**. By default `deploy.yml`
+runs on a GitHub-hosted runner and reaches Portainer at its public origin; where
+that origin does not exist, a hosted runner cannot deploy at all and the job has
+to run on the LAN instead — the same constraint the
+[Infra](https://github.com/nicolaslallier/Infra) stack deploys under, and the
+same runner setup, mirrored here.
+
+A runner registered on this repository serves only this repository, so Infra's
+runner cannot take DarkAngel's jobs: this stack needs its own.
+
+Like Infra's, it is its own compose project (`docker-compose.runner.yml`),
+outside the stack it deploys — a redeploy force-recreates every container in
+`darkangel`, and a runner recreated mid-job is a job that never reports.
+
+```bash
+# 1. a PAT that may register runners on this repo:
+#    GitHub -> Settings -> Developer settings -> Personal access tokens
+#    (classic, 'repo' scope; or fine-grained with Administration: RW here)
+#    Minting it is a web-UI step -- GitHub has no API that issues a PAT.
+make runner-env         # paste it; writes .runner.env, mode 600
+
+# 2. start it; it registers itself with the label 'darkangel'
+make runner-up
+make runner-status      # the container here, and what GitHub has registered
+make runner-logs        # until "Listening for Jobs"
+```
+
+Then set the **`DEPLOY_RUNNER` repository variable to `darkangel`**, which is
+what moves the deploy job onto it. Without that the runner sits idle and the
+deploy keeps going out from a GitHub-hosted runner.
+
+| Target | What it does |
+| --- | --- |
+| `make runner-up` / `make runner-down` | Start / stop the runner |
+| `make runner-restart` / `make runner-logs` | Restart it / tail its logs |
+| `make runner-status` | Is it running here, and does GitHub have it registered with the `darkangel` label? |
+| `make runner-pull` | Re-pull the runner image and recreate it (the tag moves; GitHub retires old versions) |
+| `make runner-shell` | Open a shell in the running runner |
+| `make runner-env` | Write `.runner.env` from a GitHub PAT, checking first that it may administer runners (`FORCE=1` replaces it) |
+
+`make runner-status` is worth preferring over the browser, because it answers
+the question that actually bites: the runner is `EPHEMERAL`, so it de-registers
+after every job and re-registers on restart, and a container that is up says
+nothing about whether GitHub still has a runner to hand the next deploy to.
+GitHub does not report the gap — a job whose labels match nothing queues
+silently rather than failing — so the two sides have to be read together.
+
+`runner-down`, `-restart` and `-pull` refuse while a job is running, since
+recreating the container mid-job leaves that workflow run with no result;
+`FORCE=1 make runner-down` overrides. If GitHub cannot be reached to ask, they
+warn and continue rather than trapping you with a runner you cannot stop.
+`make runner-pull` is the fix for a runner GitHub has stopped accepting: the
+image tag moves on purpose, because pinning a digest ages into a version the
+service refuses.
+
+Two things worth knowing before relying on it. The runner holds
+`/var/run/docker.sock` — root on this daemon, the same power Portainer's UI
+has — so **merging to main is now enough to run code on the host**; branch
+protection is what keeps that set small. And **no workflow on the `darkangel`
+label may ever trigger on `pull_request`**: this repository is public, and a
+fork's PR brings its own workflow file. Set **Settings → Actions → General →
+"Fork pull request workflows from outside collaborators"** to *Require approval
+for all outside collaborators*.
+
+`.runner.env` holds that PAT and is gitignored, for the reason
+`.portainer.env` is: it can register runners on the repository, so it stays out
+of anything handed to a container.

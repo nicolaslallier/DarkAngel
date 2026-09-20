@@ -1,3 +1,10 @@
+# Builds both images and has Portainer redeploy the stack.
+#
+# Never add a pull_request (or pull_request_target) trigger to this workflow
+# while DEPLOY_RUNNER points at the self-hosted runner. This repository is
+# public, that runner holds the Docker socket, and a fork's PR brings its own
+# workflow file: the combination is arbitrary code execution as root on the
+# deploy host. See the README, "Deploying from a self-hosted runner".
 name: Deploy to Portainer
 
 on:
@@ -63,11 +70,19 @@ jobs:
   deploy:
     name: Redeploy Portainer stack
     needs: build
-    # Set the DEPLOY_RUNNER repository variable to a self-hosted runner label
-    # when Portainer is only reachable from inside the local network.
+    # A GitHub-hosted runner reaches Portainer at its public origin. Where
+    # there is no public ingress to it, set the DEPLOY_RUNNER repository
+    # variable to 'darkangel' -- the label the self-hosted runner registers
+    # with (docker-compose.runner.yml, `make runner-up`) -- and this job moves
+    # onto the LAN, where it reaches Portainer over infra-net instead.
     runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The self-hosted runner holds the Docker socket; don't leave a
+          # credential in the workspace's .git/config for the deploy to run
+          # beside. Nothing here pushes.
+          persist-credentials: false
 
       - name: Redeploy the stack
         shell: bash
