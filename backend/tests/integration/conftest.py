@@ -27,9 +27,16 @@ def minio_bucket():
     the fixture owns one for the length of the session. Everything below the
     snapshot runs inside a `finally` so a skip or a CI-fail — both raised
     before the bucket even exists — still restore the environment and both
-    lru_caches. Without that, a later unit/regression test in the same pytest
-    process (`make test-backend` runs all three suites together) would read
-    settings pointed at this fixture's MinIO instead of its own.
+    lru_caches before this process exits.
+
+    That restore fires at *session* teardown, after every test in this process
+    has already run — it does NOT protect a unit/regression test sharing this
+    same pytest process: such a test would still read settings pointed at this
+    fixture's throwaway bucket, because the restore hasn't happened yet. Suite
+    isolation instead comes from running each suite in its own pytest process
+    (`make test-unit`, `make test-integration`, `make test-regression`, and
+    `coverage-backend`'s three separate invocations) — never merge them into
+    one `pytest` call.
     """
     prior_env = {key: os.environ.get(key) for key in ENV_KEYS}
 

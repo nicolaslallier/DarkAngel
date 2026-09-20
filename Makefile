@@ -149,10 +149,16 @@ snapshot: $(PY) ## Rewrite the pinned OpenAPI snapshot after an intended API cha
 
 coverage: coverage-backend coverage-frontend ## Coverage for both sides
 
+# Three pytest processes, not one: same reason as `test` above. Each run adds
+# to the same .coverage (erased first, so a stale run can't inflate this one);
+# the combined total is what --fail-under and the XML report are built from.
 coverage-backend: $(PY) ## Backend coverage over every suite, failing under COVERAGE_MIN%
-	cd $(BACKEND) && .venv/bin/python -m pytest \
-		--cov=app --cov-report=term-missing --cov-report=xml \
-		--cov-fail-under=$(COVERAGE_MIN)
+	rm -f $(BACKEND)/.coverage
+	cd $(BACKEND) && .venv/bin/python -m pytest -m unit --cov=app --cov-append
+	cd $(BACKEND) && .venv/bin/python -m pytest -m regression --cov=app --cov-append
+	cd $(BACKEND) && .venv/bin/python -m pytest -m integration --cov=app --cov-append
+	cd $(BACKEND) && .venv/bin/python -m coverage report --show-missing --fail-under=$(COVERAGE_MIN)
+	cd $(BACKEND) && .venv/bin/python -m coverage xml
 
 ## --------------------------------------------------------------- build -----
 
