@@ -1,3 +1,10 @@
+# Builds both images and has Portainer redeploy the stack.
+#
+# Never add a pull_request (or pull_request_target) trigger to this workflow
+# while DEPLOY_RUNNER points at the self-hosted runner. This repository is
+# public, that runner holds the Docker socket, and a fork's PR brings its own
+# workflow file: the combination is arbitrary code execution as root on the
+# deploy host. See the README, "Deploying from a self-hosted runner".
 name: Deploy to Portainer
 
 on:
@@ -63,31 +70,88 @@ jobs:
   deploy:
     name: Redeploy Portainer stack
     needs: build
-    # Set the DEPLOY_RUNNER repository variable to a self-hosted runner label
-    # when Portainer is only reachable from inside the local network.
+    # A GitHub-hosted runner reaches Portainer at its public origin. Where
+    # there is no public ingress to it, set the DEPLOY_RUNNER repository
+    # variable to 'darkangel' -- the label the self-hosted runner registers
+    # with (docker-compose.runner.yml, `make runner-up`) -- and this job moves
+    # onto the LAN, where it reaches Portainer over infra-net instead.
     runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
     steps:
-      - name: Trigger stack webhook
+      - uses: actions/checkout@v4
+        with:
+          # The self-hosted runner holds the Docker socket; don't leave a
+          # credential in the workspace's .git/config for the deploy to run
+          # beside. Nothing here pushes.
+          persist-credentials: false
+
+      - name: Redeploy the stack
+        shell: bash
         env:
+          # Preferred path: a Portainer access token (Portainer -> My account
+          # -> Access tokens). scripts/portainer-stack.sh creates the stack on
+          # the first run and redeploys it on every run after, so deploying
+          # never waits on someone running `make up` by hand first.
+          PORTAINER_API_KEY: ${{ secrets.PORTAINER_API_KEY }}
+          # Fallback for a stack that already exists: its redeploy webhook,
+          # as printed by `make webhook`.
           WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
-          # Set the PORTAINER_INSECURE repository variable to "true" when the
-          # local Portainer serves a self-signed certificate.
-          INSECURE: ${{ vars.PORTAINER_INSECURE }}
+          # The API path rewrites the stack's whole Env list on every deploy,
+          # so the MinIO secret has to be sent with it -- left out, each run
+          # would blank it and the Files page would stop working. The same
+          # value `make minio` gave the darkangel-api MinIO user.
+          MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+          # Optional overrides, all repository variables.
+          PORTAINER_URL: ${{ vars.PORTAINER_URL }}
+          PORTAINER_INSECURE: ${{ vars.PORTAINER_INSECURE }}
+          PORTAINER_DIRECT: ${{ vars.PORTAINER_DIRECT }}
+          DEPLOY_RUNNER: ${{ vars.DEPLOY_RUNNER }}
+          # The stack file to deploy is read from GitHub at this ref, not from
+          # this checkout, so it tracks whatever triggered the run.
+          PORTAINER_REF: ${{ github.ref }}
+          IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          if [ -z "$WEBHOOK_URL" ]; then
-            echo "::error::PORTAINER_WEBHOOK_URL secret is not set. Create the stack webhook in Portainer (Stacks -> DarkAngel -> Webhooks) and store its URL as a repository secret."
-            exit 1
+          set -euo pipefail
+
+          # GHCR image names are lowercase; the stack builds its image
+          # references out of this, matching docker/metadata-action above.
+          IMAGE_OWNER=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          export IMAGE_OWNER IMAGE_TAG
+
+          if [ -n "$PORTAINER_API_KEY" ]; then
+            if [ -z "$PORTAINER_DIRECT" ]; then
+              # A self-hosted runner is the Docker host itself, so it can reach
+              # Portainer over infra-net the way a laptop on that network does.
+              # A GitHub-hosted one is on no such network and has to go through
+              # the public origin instead.
+              if [ -n "$DEPLOY_RUNNER" ]; then
+                PORTAINER_DIRECT=false
+              else
+                PORTAINER_DIRECT=true
+              fi
+            fi
+            export PORTAINER_DIRECT
+            echo "Deploying through the Portainer API (direct=$PORTAINER_DIRECT)..."
+            scripts/portainer-stack.sh up
+            exit 0
           fi
 
-          curl_args="--silent --show-error --fail-with-body --location --max-time 120 --retry 3 --retry-delay 5 --retry-connrefused"
-          if [ "$INSECURE" = "true" ]; then
-            curl_args="$curl_args --insecure"
+          if [ -n "$WEBHOOK_URL" ]; then
+            args=(--silent --show-error --fail-with-body --location --max-time 120
+                  --retry 3 --retry-delay 5 --retry-connrefused)
+            # Only an explicit "true" skips verification, so PORTAINER_INSECURE
+            # left at "false" does not read as "set, therefore on".
+            if [ "$PORTAINER_INSECURE" = true ]; then
+              args+=(--insecure)
+            fi
+            echo "Calling the Portainer stack webhook..."
+            curl "${args[@]}" -X POST "$WEBHOOK_URL"
+            echo "Portainer accepted the redeploy request."
+            exit 0
           fi
 
-          echo "Calling Portainer stack webhook..."
-          # shellcheck disable=SC2086
-          curl $curl_args -X POST "$WEBHOOK_URL"
-          echo "Portainer accepted the redeploy request."
+          echo "::error::No way to reach Portainer. Store a Portainer access token as the PORTAINER_API_KEY repository secret (Portainer -> My account -> Access tokens) so this job can create and redeploy the stack, or store an existing stack's webhook as PORTAINER_WEBHOOK_URL."
+          exit 1
 
       - name: Summary
         run: |
@@ -97,6 +161,7 @@ jobs:
             echo "### Deployed to Portainer"
             echo
             echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Tag: \`${{ inputs.image_tag || 'latest' }}\`"
             echo "- Backend image: \`${base}-backend\`"
             echo "- Frontend image: \`${base}-frontend\`"
           } >> "$GITHUB_STEP_SUMMARY"

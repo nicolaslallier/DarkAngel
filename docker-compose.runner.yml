@@ -1,0 +1,60 @@
+# The self-hosted GitHub Actions runner that deploys DarkAngel after a push
+# to main. Its own compose project, outside the "darkangel" stack it deploys,
+# for the reason Infra's runner is outside the stack it deploys: a redeploy
+# force-recreates every container in that stack, and a runner recreated
+# mid-job is a job that never reports its result.
+#
+# Needed only when Portainer has no public ingress. .github/workflows/
+# deploy.yml runs on a GitHub-hosted runner by default and reaches Portainer
+# at its public origin; where that origin does not exist, a hosted runner
+# cannot deploy at all and the job has to run on this LAN instead.
+#
+# A runner registered on this repository serves only this repository --
+# GitHub scopes repo runners that way -- so Infra's runner cannot take
+# DarkAngel's jobs, and this one cannot take Infra's.
+#
+# Driven by `make runner-up` / -down / -restart / -logs / -status. Read the
+# security note in the README ("Deploying from a self-hosted runner") before
+# widening who can merge to main.
+name: darkangel-runner
+
+services:
+  runner:
+    # A moving tag on purpose. GitHub retires old runner versions
+    # server-side, so a digest pinned today ages into a runner the service
+    # refuses to talk to. `make runner-pull` is the fix when that happens.
+    image: myoung34/github-runner:ubuntu-noble
+    restart: unless-stopped
+    environment:
+      RUNNER_SCOPE: repo
+      REPO_URL: https://github.com/nicolaslallier/DarkAngel
+      RUNNER_NAME: ${GH_RUNNER_NAME:-darkangel-host}
+      # deploy.yml selects this runner through the DEPLOY_RUNNER repository
+      # variable, which must be set to this label. Keep the two in step: a
+      # renamed label leaves the deploy job queued forever with no error,
+      # since "no runner matches" is not a failure to GitHub.
+      LABELS: darkangel
+      # De-register after every job; `restart: unless-stopped` then brings up
+      # a freshly registered one. No job inherits a working tree, a container
+      # or an env var another job left behind -- which matters more than
+      # usual here, because this runner holds the Docker socket.
+      EPHEMERAL: "true"
+      # A PAT, exchanged at startup for the short-lived registration token
+      # the runner actually uses. It lives in .runner.env, never in a file
+      # handed to a container or shipped to Portainer as the stack env: this
+      # token can register runners on the repo. Same reasoning as
+      # PORTAINER_API_KEY in .portainer.env.
+      ACCESS_TOKEN: ${GH_RUNNER_TOKEN:?Set GH_RUNNER_TOKEN in .runner.env (run 'make runner-env')}
+    volumes:
+      # Root on this host's Docker daemon -- the same power Portainer's UI
+      # has, and the whole reason this runner can deploy anything.
+      # scripts/portainer-stack.sh runs its curl container through this
+      # socket, which is how the deploy reaches Portainer over infra-net.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner-work:/_work
+    # Deliberately not on infra-net. It needs outbound HTTPS to GitHub and
+    # nothing else: the curl container portainer-stack.sh starts joins
+    # infra-net itself.
+
+volumes:
+  runner-work:
