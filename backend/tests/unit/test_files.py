@@ -292,3 +292,60 @@ def test_content_needs_a_token(repo, store):
     created = upload().json()
 
     assert client.get(f"/api/files/{created['id']}/content").status_code == 401
+
+
+def test_delete_removes_the_file_from_the_list(repo, store):
+    created = upload().json()
+
+    assert client.delete(f"/api/files/{created['id']}", headers=auth()).status_code == 204
+    assert client.get("/api/files", headers=auth()).json() == []
+
+
+def test_delete_keeps_the_bytes_and_the_row(repo, store):
+    created = upload().json()
+
+    client.delete(f"/api/files/{created['id']}", headers=auth())
+
+    assert store.objects[f"user-1/{created['id']}"] == (b"hello", "text/plain")
+    assert len(repo.rows) == 1
+
+
+def test_delete_writes_an_audit_row(repo, store):
+    created = upload().json()
+
+    client.delete(f"/api/files/{created['id']}", headers=auth())
+
+    actor, action, _, target_id, detail = repo.audits[-1]
+    assert (actor, action) == ("user-1", "delete")
+    assert str(target_id) == created["id"]
+    assert detail == {"name": "a.txt"}
+
+
+def test_delete_cannot_reach_another_owners_file(repo, store):
+    created = upload().json()
+
+    assert client.delete(f"/api/files/{created['id']}", headers=auth("user-2")).status_code == 404
+    assert len(client.get("/api/files", headers=auth()).json()) == 1
+
+
+def test_deleting_twice_is_a_404(repo, store):
+    created = upload().json()
+    client.delete(f"/api/files/{created['id']}", headers=auth())
+
+    assert client.delete(f"/api/files/{created['id']}", headers=auth()).status_code == 404
+
+
+def test_the_name_is_free_again_after_a_delete(repo, store):
+    first = upload(name="notes.txt").json()
+    client.delete(f"/api/files/{first['id']}", headers=auth())
+
+    second = upload(name="notes.txt")
+
+    assert second.status_code == 201
+    assert second.json()["id"] != first["id"]
+
+
+def test_delete_needs_a_token(repo, store):
+    created = upload().json()
+
+    assert client.delete(f"/api/files/{created['id']}").status_code == 401

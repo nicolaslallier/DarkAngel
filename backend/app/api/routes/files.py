@@ -201,6 +201,21 @@ def get_file(claims: Claims, repo: FileRepo, file_id: uuid.UUID) -> FileInfo:
     return FileInfo.of(row)
 
 
+@router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_file(claims: Claims, repo: FileRepo, file_id: uuid.UUID) -> Response:
+    """Soft: the row is marked, the bytes stay. From the outside this is what
+    today's delete already looks like -- the bucket is versioned, so even the
+    old hard delete only ever wrote a delete marker. The Trash that makes the
+    difference visible is Phase 3."""
+    row = repo.get(claims["sub"], file_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such file")
+
+    repo.soft_delete(row)
+    repo.audit(claims["sub"], "delete", "file", row.id, {"name": row.name})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/{file_id}/content")
 def download_file(
     claims: Claims,
