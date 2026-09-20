@@ -54,6 +54,40 @@ cd frontend && npm run test tests/unit/router.test.ts
 with no `-m` marker applied. Reach for the suite-specific targets above first;
 use `test-backend` when you want to target one file or node id directly.
 
+## Reading the output
+
+Every backend run ends with up to three blocks, printed by
+`pytest_terminal_summary` in `backend/tests/conftest.py`:
+
+```
+--------------------------------- modules run ----------------------------------
+  tests/unit/test_auth.py                               1 test
+  tests/unit/test_files.py                              3 tests
+  tests/unit/test_health.py                             1 test
+------------------------------ skipped at runtime ------------------------------
+    9 tests  Skipped: MinIO unreachable at localhost:9000: HTTPConnectionPool …
+------------------- deselected by -m (not run in this pass) --------------------
+  integration                                           9 tests   -> make test-integration
+  regression                                           14 tests   -> make test-regression
+```
+
+- **modules run** — one line per test module that actually executed, with how
+  many of its tests did. This is the answer to "what did this pass cover".
+- **skipped at runtime** — collected but skipped, one line per distinct
+  *reason*, not per test: nine integration tests skip over the same
+  unreachable MinIO, and that is one line. `-rs` prints them per test.
+- **deselected by -m** — what the marker filter removed, grouped by suite,
+  each with the target that would run it. pytest's own summary gives only a
+  total ("23 deselected"), which looks the same whether one suite was left out
+  or two.
+
+`--strict-markers -rfE` is in `addopts`, so failures and errors are recapped
+as a list at the end of a long run. Deliberately not `-ra`: that repeats a
+skip reason once per test.
+
+The frontend reporter is `verbose` (`frontend/vite.config.ts`), so vitest
+names all 36 tests instead of collapsing a green run to `8 passed (8)`.
+
 ## How the markers work
 
 `backend/tests/conftest.py` has a `pytest_collection_modifyitems` hook that

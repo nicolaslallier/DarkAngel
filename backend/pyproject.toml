@@ -37,7 +37,10 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers"
+# -rfE recaps failures and errors as a list at the end of a long run. Not -ra:
+# skips are reported by conftest's terminal summary instead, deduped — the
+# integration suite skips nine times with the same 400-character reason.
+addopts = "--strict-markers -rfE"
 markers = [
     "unit: fast and in-process; every external service is faked",
     "integration: needs a real MinIO (see docs/testing.md)",

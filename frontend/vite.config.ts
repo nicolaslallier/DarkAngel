@@ -10,6 +10,9 @@ export default defineConfig({
     // Components and the api client both touch the DOM and fetch.
     environment: 'jsdom',
     include: ['tests/**/*.test.ts'],
+    // The default reporter collapses a green run to "8 passed (8)" — which
+    // files and which cases ran is exactly what you want when reading CI.
+    reporters: ['verbose'],
     coverage: {
       // No threshold yet: the first CI run is the baseline, and docs/testing.md
       // says to raise it to that number and never below it.
