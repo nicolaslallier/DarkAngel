@@ -15,43 +15,63 @@ DEFAULTS = {
     "DARKANGEL_S3_SECURE": "false",
 }
 
+# Every env var this fixture ever writes, so setup/restore stay in lockstep.
+ENV_KEYS = (*DEFAULTS, "DARKANGEL_S3_BUCKET")
+
 
 @pytest.fixture(scope="session", autouse=True)
 def minio_bucket():
     """Point the app at a throwaway bucket on a real MinIO, and clean it up.
 
     The app never creates its own bucket (`make minio` does, in production), so
-    the fixture owns one for the length of the session.
+    the fixture owns one for the length of the session. Everything below the
+    snapshot runs inside a `finally` so a skip or a CI-fail — both raised
+    before the bucket even exists — still restore the environment and both
+    lru_caches. Without that, a later unit/regression test in the same pytest
+    process (`make test-backend` runs all three suites together) would read
+    settings pointed at this fixture's MinIO instead of its own.
     """
-    for key, value in DEFAULTS.items():
-        os.environ.setdefault(key, value)
-    # Unique per run, so two sessions against one MinIO cannot collide.
-    os.environ["DARKANGEL_S3_BUCKET"] = f"darkangel-test-{uuid.uuid4().hex[:12]}"
+    prior_env = {key: os.environ.get(key) for key in ENV_KEYS}
 
-    # Both are lru_cached; without this they keep the settings read at import.
-    get_settings.cache_clear()
-    files.minio_client.cache_clear()
-
-    settings = get_settings()
-    client = files.minio_client()
-
-    try:
-        client.list_buckets()
-    except Exception as e:
-        reason = f"MinIO unreachable at {settings.s3_endpoint}: {e}"
-        # Skipping is a local convenience. In CI a broken service must go red,
-        # never green-by-skip.
-        if os.environ.get("CI") == "true":
-            pytest.fail(reason, pytrace=False)
-        pytest.skip(reason)
-
-    client.make_bucket(settings.s3_bucket)
-    try:
-        yield settings.s3_bucket
-    finally:
-        # Teardown runs even when a test failed mid-upload, so nothing leaks.
-        for obj in client.list_objects(settings.s3_bucket, recursive=True):
-            client.remove_object(settings.s3_bucket, obj.object_name)
-        client.remove_bucket(settings.s3_bucket)
+    def restore():
+        for key, value in prior_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         get_settings.cache_clear()
         files.minio_client.cache_clear()
+
+    try:
+        for key, value in DEFAULTS.items():
+            os.environ.setdefault(key, value)
+        # Unique per run, so two sessions against one MinIO cannot collide.
+        os.environ["DARKANGEL_S3_BUCKET"] = f"darkangel-test-{uuid.uuid4().hex[:12]}"
+
+        # Both are lru_cached; without this they keep the settings read at import.
+        get_settings.cache_clear()
+        files.minio_client.cache_clear()
+
+        settings = get_settings()
+        client = files.minio_client()
+
+        try:
+            client.list_buckets()
+        except Exception as e:
+            reason = f"MinIO unreachable at {settings.s3_endpoint}: {e}"
+            # Skipping is a local convenience. In CI a broken service must go red,
+            # never green-by-skip.
+            if os.environ.get("CI") == "true":
+                pytest.fail(reason, pytrace=False)
+            pytest.skip(reason)
+
+        client.make_bucket(settings.s3_bucket)
+        try:
+            yield settings.s3_bucket
+        finally:
+            # Teardown runs even when a test failed mid-upload, so nothing leaks.
+            for obj in client.list_objects(settings.s3_bucket, recursive=True):
+                client.remove_object(settings.s3_bucket, obj.object_name)
+            client.remove_bucket(settings.s3_bucket)
+    finally:
+        restore()
