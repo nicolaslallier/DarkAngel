@@ -127,6 +127,9 @@ test-unit: $(PY) ## Backend unit tests (everything faked, no services needed)
 test-regression: $(PY) ## Backend regression tests (pinned bugs + API contract)
 	cd $(BACKEND) && .venv/bin/python -m pytest -m regression $(ARGS)
 
+snapshot: $(PY) ## Rewrite the pinned OpenAPI snapshot after an intended API change
+	cd $(BACKEND) && .venv/bin/python -m tests.regression.test_openapi_contract
+
 coverage: $(PY) ## pytest with coverage, failing under COVERAGE_MIN%
 	cd $(BACKEND) && .venv/bin/python -m pytest \
 		--cov=app --cov-report=term-missing --cov-report=xml \
