@@ -9,7 +9,7 @@ remember and none to forget.
 | Suite | Where | What is real | CI job |
 |---|---|---|---|
 | Backend unit | `backend/tests/unit/` (5 tests) | Nothing outside the process. MinIO is `FakeMinio`, Keycloak is a fake JWKS. | `backend-unit` |
-| Backend regression | `backend/tests/regression/` (13 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
+| Backend regression | `backend/tests/regression/` (14 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
 | Backend integration | `backend/tests/integration/` (9 tests) | A real MinIO, in a throwaway bucket. Auth stays faked. | `backend-integration` |
 | Frontend unit | `frontend/tests/unit/` | jsdom. `fetch` and `oidc-client-ts` are mocked. | `frontend` |
 | Frontend regression | `frontend/tests/regression/` | Same as frontend unit. | `frontend` |

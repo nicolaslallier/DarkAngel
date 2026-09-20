@@ -41,3 +41,5 @@ def test_users_only_see_their_own_files(store):
 def test_files_need_a_token():
     assert client.get("/api/files").status_code == 401
     assert client.post("/api/files", files={"file": ("a.txt", b"x")}).status_code == 401
+    assert client.get("/api/files/a.txt").status_code == 401
+    assert client.delete("/api/files/a.txt").status_code == 401
