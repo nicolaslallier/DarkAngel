@@ -32,6 +32,31 @@ class Settings(BaseSettings):
     s3_access_key: str = "darkangel-api"
     s3_secret_key: str = ""
 
+    # Infra PostgreSQL: the metadata index and the source of truth for what
+    # files exist. `make postgres` creates the database and its scoped role;
+    # the password arrives as a Portainer stack variable, never in git.
+    database_url: str = "postgresql+psycopg://darkangel:@postgres:5432/darkangel"
+
+    # Upload guards. Both are refused with 413: one file over the first, or a
+    # file that would push the owner's total over the second.
+    max_upload_bytes: int = 100 * 1024 * 1024
+    user_quota_bytes: int = 5 * 1024 * 1024 * 1024
+    # Refused at upload time. Defence in depth only -- the boundary that
+    # actually holds is inline_content_types below, which decides what a
+    # browser is ever allowed to render inside our own origin.
+    denied_extensions: list[str] = [".html", ".htm", ".xhtml", ".svg", ".js", ".mjs"]
+    # The only types ever served with `Content-Disposition: inline`. Anything
+    # else downloads as an attachment whatever it claims to be, so an uploaded
+    # document cannot run script against the SPA's origin.
+    inline_content_types: list[str] = [
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "application/pdf",
+        "text/plain",
+    ]
+
 
 @lru_cache
 def get_settings() -> Settings:
