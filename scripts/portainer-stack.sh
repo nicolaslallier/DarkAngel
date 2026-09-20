@@ -27,15 +27,27 @@ CURL_IMAGE=curlimages/curl:8.5.0
 # from this checkout, so what is committed on this ref is what runs.
 REF="${PORTAINER_REF:-refs/heads/main}"
 
-# Where the curl container reaches Portainer. The default matches the Infra
-# stack: Portainer on infra-net, addressed by its service name, so deploying
-# never depends on nginx or DNS.
-PORTAINER_URL="${PORTAINER_URL:-https://portainer:9443}"
 PORTAINER_NETWORK="${PORTAINER_NETWORK:-infra-net}"
 
-# Public Portainer origin, used only to print a webhook URL that GitHub
-# Actions can reach. The in-cluster URL above is not routable from a runner.
+# Public Portainer origin: how a machine outside infra-net reaches it, and the
+# origin a printed webhook URL is built from.
 PORTAINER_PUBLIC_URL="${PORTAINER_PUBLIC_URL:-https://portainer.infra.famillelallier.net}"
+
+# Direct mode: reach Portainer from this machine rather than from a curl
+# container on PORTAINER_NETWORK. That container is what lets a host on
+# infra-net address Portainer as `portainer:9443`; a GitHub-hosted runner is on
+# no such network, so deploy.yml turns this on and goes through the public
+# origin instead.
+PORTAINER_DIRECT="${PORTAINER_DIRECT:-false}"
+
+# Where Portainer is reached. Over infra-net that is the service name, so
+# deploying never depends on nginx or DNS; in direct mode there is no such
+# name to resolve, so the public origin is the default.
+if [ "$PORTAINER_DIRECT" = true ]; then
+  PORTAINER_URL="${PORTAINER_URL:-$PORTAINER_PUBLIC_URL}"
+else
+  PORTAINER_URL="${PORTAINER_URL:-https://portainer:9443}"
+fi
 
 die() { printf 'portainer-stack.sh: %b\n' "$*" >&2; exit 1; }
 note() { printf 'portainer-stack.sh: %b\n' "$*"; }
@@ -82,7 +94,7 @@ selftest() {
 # docker CLI forwards its environment depends on the shell (from WSL, a
 # Windows docker.exe does not see it), and a missing key would only surface as
 # Portainer's "A valid authorization token is missing".
-api() { # <method> <path> [json-body]
+api_docker() { # <method> <path> [json-body]
   # MSYS_NO_PATHCONV/MSYS2_ARG_CONV_EXCL: under Git for Windows the MSYS
   # runtime rewrites arguments that look like POSIX paths before handing them
   # to the native docker.exe, so "/endpoints" arrives as
@@ -101,7 +113,50 @@ api() { # <method> <path> [json-body]
     || die "$1 $2 failed (is Portainer up, and is this host on $PORTAINER_NETWORK?)"
 }
 
+# The same call made straight from this machine, for direct mode. The key still
+# reaches curl through a config file rather than a command-line argument, so it
+# never shows up in a process list; mktemp creates that file 0600.
+api_direct() { # <method> <path> [json-body]
+  local cfg out rc
+  cfg="$(mktemp)"
+  printf 'header = "X-API-Key: %s"\n' "$PORTAINER_API_KEY" >"$cfg"
+  local args=(-sS -K "$cfg" --fail-with-body -X "$1"
+              -H "Content-Type: application/json" --data-binary @-)
+  # Only an explicit "true" skips verification, so PORTAINER_INSECURE=false
+  # does not read as "set, therefore on".
+  if [ "${PORTAINER_INSECURE:-}" = true ]; then
+    args+=(-k)
+  fi
+  set +e
+  out="$(printf '%s' "${3:-}" | curl "${args[@]}" "$PORTAINER_URL/api$2" 2>&1)"
+  rc=$?
+  set -e
+  rm -f "$cfg"
+  if [ "$rc" -ne 0 ]; then
+    printf '%s\n' "$out" >&2
+    die "$1 $2 failed (is $PORTAINER_URL reachable from here?)"
+  fi
+  printf '%s' "$out"
+}
+
+api() { # <method> <path> [json-body]
+  if [ "$PORTAINER_DIRECT" = true ]; then
+    api_direct "$@"
+  else
+    api_docker "$@"
+  fi
+}
+
 webhook_url() { printf '%s/api/stacks/webhooks/%s\n' "${PORTAINER_PUBLIC_URL%/}" "$1"; }
+
+# A webhook URL is a redeploy credential on its own and this repository is
+# public, so it must not land in an Actions log: ::add-mask:: makes GitHub
+# redact it from everything the job prints afterwards. A no-op off Actions.
+mask_secret() {
+  if [ "${GITHUB_ACTIONS:-}" = true ]; then
+    printf '::add-mask::%s\n' "$1"
+  fi
+}
 
 cmd="${1:-}"
 case "$cmd" in
@@ -111,7 +166,11 @@ case "$cmd" in
 esac
 
 command -v jq >/dev/null || die "missing: jq"
-command -v docker >/dev/null || die "missing: docker"
+if [ "$PORTAINER_DIRECT" = true ]; then
+  command -v curl >/dev/null || die "missing: curl"
+else
+  command -v docker >/dev/null || die "missing: docker"
+fi
 
 # PORTAINER_API_KEY lives in .portainer.env (gitignored). It is a
 # Docker-daemon-root token, so it is kept out of anything handed to a
@@ -145,6 +204,7 @@ case "$cmd" in
           AutoUpdate: {Webhook: $hook, ForcePullImage: true}}')"
       api POST "/stacks/create/standalone/repository?endpointId=$eid" "$body" >/dev/null
       note "created stack '$STACK' from $REPO_URL ($REF)"
+      mask_secret "$(webhook_url "$hook")"
       note "webhook: $(webhook_url "$hook")\n  save it as the PORTAINER_WEBHOOK_URL repository secret so deploy.yml can redeploy"
     else
       # Status 2 is a stopped stack; redeploying one that is down is a no-op
@@ -187,6 +247,7 @@ case "$cmd" in
       api PUT "/stacks/$sid/git?endpointId=$eid" "$body" >/dev/null
       note "created a redeploy webhook for stack '$STACK'"
     fi
+    mask_secret "$(webhook_url "$hook")"
     webhook_url "$hook"
     ;;
 esac

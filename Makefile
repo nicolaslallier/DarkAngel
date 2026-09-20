@@ -186,8 +186,10 @@ stack-selftest: ## Check portainer-stack.sh's helpers without calling Portainer
 keycloak-client: ## Create/update the darkangel-spa client in Keycloak realm ea (INFRA_ENV, KC_CACERT)
 	@scripts/provision-keycloak-client.sh
 
-# ponytail: the webhook only redeploys; stopping the stack is `make down`.
-deploy: ## Redeploy the Portainer stack via PORTAINER_WEBHOOK_URL (what CI calls)
+# The webhook only redeploys; stopping the stack is `make down`, and creating
+# one is `make up`. deploy.yml prefers the API path (PORTAINER_API_KEY), which
+# can do both, and falls back to this webhook when no token is set.
+deploy: ## Redeploy the Portainer stack via PORTAINER_WEBHOOK_URL (CI's fallback)
 	@test -n "$$PORTAINER_WEBHOOK_URL" || { echo "set PORTAINER_WEBHOOK_URL (get it from 'make webhook')" >&2; exit 1; }
 	curl --silent --show-error --fail-with-body --location --max-time 120 \
 		$${PORTAINER_INSECURE:+--insecure} -X POST "$$PORTAINER_WEBHOOK_URL"

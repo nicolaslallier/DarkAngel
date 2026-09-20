@@ -117,7 +117,7 @@ Portainer instance to redeploy them.
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | every push and PR | ruff + pytest, `vue-tsc` + `vite build` |
-| `.github/workflows/deploy.yml` | push to `main`, or manual | builds and pushes both images to GHCR, then calls the Portainer stack webhook |
+| `.github/workflows/deploy.yml` | push to `main`, or manual | builds and pushes both images to GHCR, then has Portainer redeploy the stack |
 
 Images are published as `ghcr.io/<owner>/darkangel-backend` and
 `ghcr.io/<owner>/darkangel-frontend`, tagged `latest` and `sha-<commit>`.
@@ -153,34 +153,53 @@ that repo — until that is done, DarkAngel is running but nothing routes to it.
 1. **Create the shared volume** on the Docker host — `docker volume create
    darkangel-web`. Both stacks declare it `external`, the way they both use
    `infra-net`: this stack fills it, the Infra NGINX reads it.
-2. **Create `.portainer.env`** from `.portainer.env.example` and put a Portainer
-   access token in it (Portainer → My account → Access tokens). It is
-   gitignored: the token is Docker-daemon-root, so it never goes in `.env`
-   (which is handed to containers) or in the repository.
+2. **Store a Portainer access token** (Portainer → My account → Access tokens)
+   as the repository secret `PORTAINER_API_KEY`. That is all `deploy.yml` needs:
+   it creates the stack on the first run and redeploys it on every run after, so
+   no one has to run `make up` by hand before the first deploy.
 3. **If the GHCR packages are private**, add a registry with your GitHub
    username and a PAT that has `read:packages` under Portainer → Registries, so
    the stack can pull.
-4. **Run `make up`.** It creates the stack in Portainer from this repository
-   (Repository method, `deploy/portainer-stack.yml` on `main`) and prints the
-   redeploy webhook it minted. Save that URL as the repository secret
-   `PORTAINER_WEBHOOK_URL` so `deploy.yml` can redeploy; `make webhook` prints
-   it again later.
+4. **Tell the workflow how to reach Portainer** — see the variables below. From
+   a GitHub-hosted runner it uses the public origin
+   (`https://portainer.infra.famillelallier.net`); if Portainer is not exposed
+   there, set `DEPLOY_RUNNER` to a self-hosted runner label instead.
 
-Nothing about this depends on the machine you run `make up` from being able to
-pull: Portainer, on the Docker host, does the pulling with its own registry
+To drive the same stack from a laptop, copy `.portainer.env.example` to
+`.portainer.env` and put the same token in it (it is gitignored: the token is
+Docker-daemon-root, so it never goes in `.env`, which is handed to containers,
+or in the repository). `make up` then does locally what the workflow does.
+
+Nothing about this depends on the machine that deploys being able to pull:
+Portainer, on the Docker host, does the pulling with its own registry
 credentials. A broken local credential helper — Docker Desktop's
 `error getting credentials … A specified logon session does not exist` under
 WSL — cannot break the deploy.
 
+### Repository secrets
+
+- `PORTAINER_API_KEY` — a Portainer access token. The path above: the workflow
+  creates or redeploys the stack through Portainer's API.
+- `PORTAINER_WEBHOOK_URL` — optional fallback, used only when there is no API
+  key. It redeploys a stack that already exists but cannot create one, so it
+  still needs a first `make up`; `make webhook` prints the URL.
+
 ### Repository variables
 
-Both are optional:
+All optional:
 
 - `DEPLOY_RUNNER` — a self-hosted runner label. Set this when Portainer is only
   reachable from inside your network; GitHub-hosted runners cannot reach it.
-  Defaults to `ubuntu-latest`.
+  Defaults to `ubuntu-latest`. A self-hosted runner on the Docker host reaches
+  Portainer over `infra-net`, the way `make up` does from that network.
+- `PORTAINER_URL` — Portainer's API origin, when it is neither
+  `https://portainer.infra.famillelallier.net` (GitHub-hosted runner) nor
+  `https://portainer:9443` (self-hosted runner on `infra-net`).
+- `PORTAINER_DIRECT` — `true` to reach Portainer straight from the runner,
+  `false` to go through a container on `infra-net`. Defaults to `false` when
+  `DEPLOY_RUNNER` is set and `true` otherwise, which is usually right.
 - `PORTAINER_INSECURE` — set to `true` when Portainer serves a self-signed
-  certificate, which adds `--insecure` to the webhook call.
+  certificate, which skips certificate verification.
 
 ### Running the stack
 
@@ -191,7 +210,7 @@ make down      # stop the stack (images and volumes kept)
 make delete    # remove the stack from Portainer
 make webhook   # print the redeploy webhook URL
 make ps logs   # status / follow logs on this docker host (SERVICE=darkangel-api)
-make deploy    # redeploy via PORTAINER_WEBHOOK_URL, the way CI does
+make deploy    # redeploy via PORTAINER_WEBHOOK_URL (deploy.yml's fallback path)
 ```
 
 `IMAGE_OWNER` and `IMAGE_TAG` are passed through to the stack: `make up
