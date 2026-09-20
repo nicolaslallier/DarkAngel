@@ -100,6 +100,16 @@ def store():
     )
 
 
+@pytest.fixture
+def repo():
+    """Shadow the shared `repo` fixture for the same reason as `store`: this
+    suite exists to exercise real SQL, and the fake would quietly defeat it."""
+    pytest.fail(
+        "integration tests run against real PostgreSQL; the FakeFileRepository "
+        "`repo` fixture is unit/regression only"
+    )
+
+
 # --- PostgreSQL -----------------------------------------------------------
 # Same shape as minio_bucket above: default the environment, clear the caches
 # that read it, and fail rather than skip when CI is the one running.
