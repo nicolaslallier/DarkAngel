@@ -17,6 +17,7 @@ VENV     := $(BACKEND)/.venv
 PY       := $(VENV)/bin/python
 UV       ?= uv
 NPM      ?= npm
+NODE     ?= node
 PYTHON_VERSION ?= 3.11
 
 # Backend dev server port; override with `make dev-backend PORT=9000`.
@@ -56,9 +57,10 @@ version: ## Print the project version
 doctor: ## Check that the required tools are on PATH
 	@command -v $(UV) >/dev/null || { echo "missing: uv (https://docs.astral.sh/uv/)"; exit 1; }
 	@command -v $(NPM) >/dev/null || { echo "missing: npm (Node.js 20+)"; exit 1; }
-	@echo "uv  $$($(UV) --version)"
+	@command -v $(NODE) >/dev/null || { echo "missing: node (Node.js 20+ — install via npm's runtime or https://nodejs.org)"; exit 1; }
+	@echo "uv   $$($(UV) --version)"
 	@echo "npm $$($(NPM) --version)"
-	@echo "node $$(node --version)"
+	@echo "node $$($(NODE) --version)"
 
 ## === install ===
 
