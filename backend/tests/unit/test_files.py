@@ -181,3 +181,49 @@ def test_upload_needs_a_token(repo):
     assert (
         client.post("/api/files", files={"file": ("a.txt", b"x", "text/plain")}).status_code == 401
     )
+
+
+def test_a_same_name_upload_versions_the_existing_file(repo, store):
+    first = upload(name="notes.txt", data=b"one").json()
+
+    second = client.post(
+        "/api/files",
+        headers=auth(),
+        files={"file": ("notes.txt", b"two now", "text/plain")},
+    )
+
+    assert second.status_code == 200
+    assert second.json()["id"] == first["id"]
+    assert second.json()["size"] == 7
+    assert repo.versions[uuid.UUID(first["id"])] == 2
+    assert len(repo.rows) == 1
+
+
+def test_the_new_version_replaces_the_bytes_at_the_same_key(repo, store):
+    created = upload(name="notes.txt", data=b"one").json()
+
+    client.post("/api/files", headers=auth(), files={"file": ("notes.txt", b"two", "text/plain")})
+
+    assert store.objects[f"user-1/{created['id']}"] == (b"two", "text/plain")
+
+
+def test_a_same_name_upload_by_another_owner_is_a_new_file(repo, store):
+    first = upload(name="notes.txt", sub="user-1").json()
+
+    second = client.post(
+        "/api/files", headers=auth("user-2"), files={"file": ("notes.txt", b"x", "text/plain")}
+    )
+
+    assert second.status_code == 201
+    assert second.json()["id"] != first["id"]
+
+
+def test_a_versioning_upload_still_respects_the_quota(repo, store, monkeypatch):
+    monkeypatch.setattr(get_settings(), "user_quota_bytes", 10, raising=False)
+    upload(name="notes.txt", data=b"abc")
+
+    response = client.post(
+        "/api/files", headers=auth(), files={"file": ("notes.txt", b"x" * 20, "text/plain")}
+    )
+
+    assert response.status_code == 413

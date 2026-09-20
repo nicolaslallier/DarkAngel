@@ -4,7 +4,7 @@ from contextlib import suppress
 from datetime import datetime
 from functools import lru_cache
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, HTTPException, Query, Response, UploadFile, status
 from minio import Minio
 from minio.error import S3Error
 from pydantic import BaseModel
@@ -92,8 +92,8 @@ def _measure(stream) -> int:
     return size
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=FileInfo)
-def upload_file(claims: Claims, repo: FileRepo, file: UploadFile) -> FileInfo:
+@router.post("", response_model=FileInfo, responses={201: {"model": FileInfo}})
+def upload_file(claims: Claims, repo: FileRepo, file: UploadFile, response: Response) -> FileInfo:
     settings = get_settings()
     name = _validated_name(file.filename or "")
 
@@ -110,6 +110,11 @@ def upload_file(claims: Claims, repo: FileRepo, file: UploadFile) -> FileInfo:
         )
 
     content_type = file.content_type or "application/octet-stream"
+
+    existing = repo.find_by_name(claims["sub"], name, None)
+    if existing is not None:
+        return _append_version(claims, repo, existing, file, size, content_type)
+
     try:
         row = repo.reserve(
             claims["sub"],
@@ -137,7 +142,51 @@ def upload_file(claims: Claims, repo: FileRepo, file: UploadFile) -> FileInfo:
 
     repo.finalize(row, s3_version_id=written.version_id or "", actor_sub=claims["sub"])
     repo.audit(claims["sub"], "upload", "file", row.id, {"name": name, "size": size})
+    response.status_code = status.HTTP_201_CREATED
     return FileInfo.of(row)
+
+
+def _append_version(
+    claims: Claims, repo: FileRepo, existing: File, file: UploadFile, size: int, content_type: str
+) -> FileInfo:
+    """BR-2: a same-name upload into the same folder is a new version of that
+    file, not a second file. This is what today's overwrite becomes once the
+    bucket's versions are indexed."""
+    settings = get_settings()
+
+    # The delta, because the old version's bytes are about to stop counting.
+    # This path has no `pending` reservation to hold a lock on -- the row is
+    # already `ready` -- so the check below is advisory: a concurrent pair of
+    # version uploads could briefly exceed the quota by one delta.
+    # ponytail: version uploads check quota without the advisory lock; add
+    # reserve_version if overshoot ever matters
+    projected = repo.used_bytes(claims["sub"]) - existing.size_bytes + size
+    if projected > settings.user_quota_bytes:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"Quota exceeded: {projected} bytes needed, the limit is {settings.user_quota_bytes}",
+        )
+
+    try:
+        written = minio_client().put_object(
+            settings.s3_bucket,
+            existing.object_key,
+            file.file,
+            length=size,
+            content_type=content_type,
+        )
+    except S3Error as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Storage is unavailable") from e
+
+    repo.add_version(
+        existing,
+        s3_version_id=written.version_id or "",
+        size_bytes=size,
+        content_type=content_type,
+        actor_sub=claims["sub"],
+    )
+    repo.audit(claims["sub"], "upload", "file", existing.id, {"name": existing.name, "size": size})
+    return FileInfo.of(existing)
 
 
 @router.get("/{file_id}", response_model=FileInfo)
