@@ -172,6 +172,9 @@ migrate: $(PY) ## Apply pending Alembic migrations to DARKANGEL_DATABASE_URL
 snapshot: $(PY) ## Rewrite the pinned OpenAPI snapshot after an intended API change
 	cd $(BACKEND) && .venv/bin/python -m tests.regression.test_openapi_contract
 
+backfill: $(PY) ## Move legacy <sub>/<name> objects to <sub>/<uuid>; ARGS=--dry-run first
+	cd $(BACKEND) && .venv/bin/python -m app.scripts.backfill $(ARGS)
+
 coverage: coverage-backend coverage-frontend ## Coverage for both sides
 
 # Three pytest processes, not one: same reason as `test` above. Each run adds
