@@ -39,14 +39,12 @@ DIST ?= dist
         build build-backend build-frontend preview \
         ci verify release clean clean-backend clean-frontend distclean
 
-## ---------------------------------------------------------------- meta -----
+## === meta ===
 
 help: ## List the available targets
 	@echo "DarkAngel $(VERSION)"
-	@echo
-	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
-		| sort \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@echo "Usage: make [TARGET] [VAR=value]"
+	@awk '/^## === / { sub(/^## === /,""); sub(/ ===/,""); printf "\n    \033[1m%s\033[0m\n", $$0; next } /^[a-zA-Z0-9_-]+:.* ## / { n=split($$0,p," ## "); m=split(p[1],q,":"); printf "    \033[36m%-16s\033[0m %s\n", q[1], p[2] }' $(MAKEFILE_LIST)
 
 version: ## Print the project version
 	@echo "$(VERSION)"
@@ -58,7 +56,7 @@ doctor: ## Check that the required tools are on PATH
 	@echo "npm $$($(NPM) --version)"
 	@echo "node $$(node --version)"
 
-## ------------------------------------------------------------- install -----
+## === install ===
 
 install: install-backend install-frontend ## Install both sides for local development
 
@@ -77,7 +75,7 @@ $(PY):
 	@echo "backend/.venv is missing — run 'make install-backend' first." >&2
 	@exit 1
 
-## ------------------------------------------------------------ dev loop -----
+## === dev loop ===
 
 dev-backend: $(PY) ## Run the backend with autoreload on PORT (default 8000)
 	cd $(BACKEND) && .venv/bin/uvicorn app.main:app --reload --port $(PORT)
@@ -92,7 +90,7 @@ frontend: dev-frontend
 preview: build-frontend ## Serve the production frontend build locally
 	cd $(FRONTEND) && $(NPM) run preview
 
-## ------------------------------------------------------------- quality -----
+## === quality ===
 
 lint: lint-backend lint-frontend ## Lint both sides
 
@@ -121,7 +119,7 @@ coverage: $(PY) ## pytest with coverage, failing under COVERAGE_MIN%
 		--cov=app --cov-report=term-missing --cov-report=xml \
 		--cov-fail-under=$(COVERAGE_MIN)
 
-## --------------------------------------------------------------- build -----
+## === build ===
 
 build: build-backend build-frontend ## Build both distributables
 
@@ -131,7 +129,7 @@ build-backend: doctor ## Build the backend wheel and sdist into backend/dist
 build-frontend: ## Type-check and build the SPA into frontend/dist
 	cd $(FRONTEND) && $(NPM) run build
 
-## ----------------------------------------------------------- pipelines -----
+## === pipelines ===
 
 verify: format-check lint test build ## Every check, against an existing install
 	@echo "verify: ok"
@@ -146,7 +144,7 @@ release: clean build ## Collect the release artifacts under dist/
 	@echo "release: artifacts in $(DIST)/"
 	@ls -1 $(DIST)
 
-## ---------------------------------------------------------- housekeeping ---
+## === housekeeping ===
 
 clean: clean-backend clean-frontend ## Remove build output and caches
 
