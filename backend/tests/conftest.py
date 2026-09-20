@@ -1,4 +1,6 @@
 import time
+from collections import Counter
+from textwrap import shorten
 from types import SimpleNamespace
 
 import jwt
@@ -25,6 +27,48 @@ def pytest_collection_modifyitems(items):
                 "so no suite would run it."
             )
         item.add_marker(suite)
+
+
+def _tests(count: int) -> str:
+    return f"{count:>3} test{'s' if count > 1 else ''}"
+
+
+def pytest_terminal_summary(terminalreporter):
+    """Name the modules this pass ran, and everything it did not run.
+
+    pytest's own last line says "5 passed, 23 deselected" and stops there: a
+    run narrowed by `-m` looks identical whether it skipped one suite or two.
+    """
+    tr = terminalreporter
+
+    ran = Counter(
+        report.nodeid.split("::")[0]
+        for reports in tr.stats.values()
+        for report in reports
+        # Deselected Items and warnings share this dict and have no `.when`.
+        if getattr(report, "when", None) == "call"
+    )
+    if ran:
+        tr.write_sep("-", "modules run")
+        for module, count in sorted(ran.items()):
+            tr.write_line(f"  {module:<52}{_tests(count)}")
+
+    # A skip is one line per reason, not per test: the integration suite skips
+    # nine times over the same unreachable MinIO.
+    skipped = Counter(
+        report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
+        for report in tr.stats.get("skipped", [])
+    )
+    if skipped:
+        tr.write_sep("-", "skipped at runtime")
+        for reason, count in skipped.most_common():
+            tr.write_line(f"  {_tests(count)}  {shorten(reason, 96, placeholder=' …')}")
+
+    left = Counter(item.path.parent.name for item in tr.stats.get("deselected", []))
+    if left:
+        tr.write_sep("-", "deselected by -m (not run in this pass)")
+        for suite, count in sorted(left.items()):
+            tr.write_line(f"  {suite:<52}{_tests(count)}   -> make test-{suite}")
 
 
 @pytest.fixture(autouse=True)
