@@ -132,8 +132,9 @@ which is the whole point: an API change is visible in review instead of silent.
 unit + regression + coverage gate), `backend-integration` (starts a real MinIO
 container, then the integration suite), and `frontend` (vitest with coverage,
 then `npm run build`, which type-checks with `vue-tsc` first). Each uploads its
-JUnit XML — and the backend jobs their coverage report, the frontend its
-`lcov.info` — as a workflow artifact; that's what the workflow file is
+JUnit XML as a workflow artifact — `backend-unit` also uploads `coverage.xml`
+(the only job with a `--cov` flag; `backend-integration` has none), and
+`frontend` also uploads its `lcov.info`; that's what the workflow file is
 configured to do; as of this writing nothing has been pushed to trigger it on
 GitHub yet, so treat this section as intent rather than an observed run.
 
