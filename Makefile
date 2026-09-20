@@ -55,10 +55,30 @@ doctor-backend: ## Check the backend toolchain (uv) is on PATH
 	@command -v $(UV) >/dev/null || { echo "missing: uv (https://docs.astral.sh/uv/)"; exit 1; }
 	@echo "uv    $$($(UV) --version)"
 doctor-frontend: ## Check the frontend toolchain (npm + node) is on PATH
-	@command -v $(NPM) >/dev/null || { echo "missing: npm (Node.js 20+)"; exit 1; }
-	@command -v $(NODE) >/dev/null || { echo "missing: node (Node.js 20+ — install via npm's runtime or https://nodejs.org)"; exit 1; }
-	@echo "npm $$($(NPM) --version)"
-	@echo "node $$($(NODE) --version)"
+	@{ \
+		command -v $(NPM) >/dev/null || { echo "missing: npm (Node.js 20+)"; exit 1; }; \
+		npm_dir=$$(dirname "$$(command -v $(NPM) 2>/dev/null || true)" 2>/dev/null || true); \
+		node_bin=$$(command -v $(NODE) 2>/dev/null || :); \
+		if [ -z "$$node_bin" ]; then \
+			for d in \
+				"$$npm_dir" \
+				"$$HOME/.nvm/versions/node"/*/bin \
+				"$$HOME/.fnm/node-versions"/*/installation/bin \
+				"$$HOME/.asdf/installs/nodejs"/*/bin \
+				"$$HOME/.volta/bin" \
+				"/usr/local/bin" "/opt/homebrew/bin" "/usr/local/node/bin"; do \
+				for c in "$$d/node"; do \
+					if [ -x "$$c" ]; then node_bin="$$c"; break 2; fi; \
+				done; \
+			done; \
+		fi; \
+		if [ -z "$$node_bin" ]; then \
+			echo "missing: node (npm found, but node is not on PATH — re-source your version manager, or install Node 20+ via https://nodejs.org)"; \
+			exit 1; \
+		fi; \
+		echo "npm $$($(NPM) --version)"; \
+		echo "node $$($$node_bin --version)"; \
+	}
 
 ## === install ===
 
