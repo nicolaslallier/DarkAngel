@@ -43,14 +43,12 @@ DIST ?= dist
         up-local down-local restart ps logs \
         ci verify release clean clean-backend clean-frontend distclean
 
-## ---------------------------------------------------------------- meta -----
+## === meta ===
 
 help: ## List the available targets
 	@echo "DarkAngel $(VERSION)"
-	@echo
-	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
-		| sort \
-		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@echo "Usage: make [TARGET] [VAR=value]"
+	@awk '/^## === / { sub(/^## === /,""); sub(/ ===/,""); printf "\n    \033[1m%s\033[0m\n", $$0; next } /^[a-zA-Z0-9_-]+:.* ## / { n=split($$0,p," ## "); m=split(p[1],q,":"); printf "    \033[36m%-16s\033[0m %s\n", q[1], p[2] }' $(MAKEFILE_LIST)
 
 version: ## Print the project version
 	@echo "$(VERSION)"
@@ -62,7 +60,7 @@ doctor: ## Check that the required tools are on PATH
 	@echo "npm $$($(NPM) --version)"
 	@echo "node $$(node --version)"
 
-## ------------------------------------------------------------- install -----
+## === install ===
 
 install: install-backend install-frontend ## Install both sides for local development
 
@@ -81,7 +79,7 @@ $(PY):
 	@echo "backend/.venv is missing — run 'make install-backend' first." >&2
 	@exit 1
 
-## ------------------------------------------------------------ dev loop -----
+## === dev loop ===
 
 dev-backend: $(PY) ## Run the backend with autoreload on PORT (default 8000)
 	cd $(BACKEND) && .venv/bin/uvicorn app.main:app --reload --port $(PORT)
@@ -96,7 +94,7 @@ frontend: dev-frontend
 preview: build-frontend ## Serve the production frontend build locally
 	cd $(FRONTEND) && $(NPM) run preview
 
-## ------------------------------------------------------------- quality -----
+## === quality ===
 
 lint: lint-backend lint-frontend ## Lint both sides
 
@@ -125,7 +123,7 @@ coverage: $(PY) ## pytest with coverage, failing under COVERAGE_MIN%
 		--cov=app --cov-report=term-missing --cov-report=xml \
 		--cov-fail-under=$(COVERAGE_MIN)
 
-## --------------------------------------------------------------- build -----
+## === build ===
 
 build: build-backend build-frontend ## Build both distributables
 
@@ -135,7 +133,7 @@ build-backend: doctor ## Build the backend wheel and sdist into backend/dist
 build-frontend: ## Type-check and build the SPA into frontend/dist
 	cd $(FRONTEND) && $(NPM) run build
 
-## ----------------------------------------------------------- pipelines -----
+## === pipelines ===
 
 verify: format-check lint test build ## Every check, against an existing install
 	@echo "verify: ok"
@@ -150,7 +148,7 @@ release: clean build ## Collect the release artifacts under dist/
 	@echo "release: artifacts in $(DIST)/"
 	@ls -1 $(DIST)
 
-## ------------------------------------------------------------- stack -----
+## === stack ===
 # Portainer owns the stack, exactly as it owns the "infra" one: it deploys
 # deploy/portainer-stack.yml from GitHub and pulls the GHCR images on the
 # Docker host with the credentials held in Portainer -> Registries. That keeps
@@ -200,7 +198,7 @@ deploy: ## Redeploy the Portainer stack via PORTAINER_WEBHOOK_URL (CI's fallback
 		$${PORTAINER_INSECURE:+--insecure} -X POST "$$PORTAINER_WEBHOOK_URL"
 	@echo "deploy: Portainer accepted the redeploy request"
 
-## ----------------------------------------------------------- CI runner -----
+## === CI runner ===
 # A self-hosted GitHub Actions runner, so deploy.yml can reach a Portainer
 # that has no public ingress. It lives in its own compose project, outside
 # the stack it deploys: a redeploy force-recreates every container in
@@ -266,7 +264,7 @@ runner-pull: check-runner-env ## Re-pull the runner image and recreate it (FORCE
 runner-shell: check-runner-env ## Open a shell in the running CI runner
 	$(RUNNER_COMPOSE) exec runner bash
 
-## --------------------------------------------------------- stack (local) ---
+## === stack (local) ===
 # The same stack file run by the local docker daemon, for a host with no
 # Portainer. `up-local` pulls from GHCR itself, so it needs a working
 # `docker login ghcr.io` on this machine. The stack file expects the shared
@@ -294,7 +292,7 @@ ps: ## Show the stack's containers on this docker host
 logs: ## Follow the stack logs; limit with SERVICE=darkangel-api
 	$(COMPOSE) logs -f $(SERVICE)
 
-## ---------------------------------------------------------- housekeeping ---
+## === housekeeping ===
 
 clean: clean-backend clean-frontend ## Remove build output and caches
 
