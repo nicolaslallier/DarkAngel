@@ -2,7 +2,9 @@ import uuid
 from datetime import datetime
 
 from fastapi.testclient import TestClient
+from minio.error import S3Error
 
+from app.core.config import get_settings
 from app.main import app
 from tests.conftest import token
 
@@ -105,3 +107,77 @@ def test_listing_sweeps_abandoned_reservations(repo, store):
     client.get("/api/files", headers=auth())
 
     assert store.objects == {}
+
+
+def upload(name="a.txt", data=b"hello", sub="user-1", content_type="text/plain"):
+    return client.post("/api/files", headers=auth(sub), files={"file": (name, data, content_type)})
+
+
+def test_upload_stores_the_bytes_under_a_uuid_key(repo, store):
+    response = upload("bail été.txt")
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "bail été.txt"
+    assert store.objects[f"user-1/{body['id']}"] == (b"hello", "text/plain")
+
+
+def test_upload_makes_the_file_listable(repo, store):
+    created = upload().json()
+
+    assert [f["id"] for f in client.get("/api/files", headers=auth()).json()] == [created["id"]]
+
+
+def test_upload_writes_an_audit_row(repo, store):
+    created = upload().json()
+
+    actor, action, target_type, target_id, detail = repo.audits[-1]
+    assert (actor, action, target_type) == ("user-1", "upload", "file")
+    assert str(target_id) == created["id"]
+    assert detail == {"name": "a.txt", "size": 5}
+
+
+def test_upload_refuses_a_file_over_the_size_limit(repo, store, monkeypatch):
+    monkeypatch.setattr(get_settings(), "max_upload_bytes", 4, raising=False)
+
+    response = upload(data=b"too long")
+
+    assert response.status_code == 413
+    assert store.objects == {}
+    assert repo.rows == []
+
+
+def test_upload_refuses_a_file_over_the_quota(repo, store, monkeypatch):
+    monkeypatch.setattr(get_settings(), "user_quota_bytes", 6, raising=False)
+    upload(name="first.txt")
+
+    response = upload(name="second.txt")
+
+    assert response.status_code == 413
+    assert "bytes used" in response.json()["detail"]
+
+
+def test_upload_refuses_a_denied_extension(repo, store):
+    response = upload(name="payload.svg", content_type="image/svg+xml")
+
+    assert response.status_code == 415
+    assert store.objects == {}
+
+
+def test_a_failed_upload_leaves_no_reservation(repo, store, monkeypatch):
+    def explode(*_args, **_kwargs):
+        raise S3Error(None, "InternalError", "boom", "k", "", "")
+
+    monkeypatch.setattr(store, "put_object", explode)
+
+    response = upload()
+
+    assert response.status_code == 502
+    assert repo.rows == []
+    assert client.get("/api/files", headers=auth()).json() == []
+
+
+def test_upload_needs_a_token(repo):
+    assert (
+        client.post("/api/files", files={"file": ("a.txt", b"x", "text/plain")}).status_code == 401
+    )

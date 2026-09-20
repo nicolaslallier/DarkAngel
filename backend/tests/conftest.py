@@ -105,8 +105,10 @@ class FakeMinio:
     def __init__(self):
         self.objects: dict[str, tuple[bytes, str]] = {}
 
-    def put_object(self, _bucket, key, data, length, part_size, content_type):
+    def put_object(self, _bucket, key, data, length, content_type, part_size=None):
         self.objects[key] = (data.read(), content_type)
+        # The real client returns an ObjectWriteResult; only version_id is read.
+        return SimpleNamespace(version_id=f"v-{len(self.objects)}")
 
     def list_objects(self, _bucket, prefix):
         return [

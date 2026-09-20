@@ -1,9 +1,10 @@
+import os
 import uuid
 from contextlib import suppress
 from datetime import datetime
 from functools import lru_cache
 
-from fastapi import APIRouter, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, HTTPException, Query, UploadFile, status
 from minio import Minio
 from minio.error import S3Error
 from pydantic import BaseModel
@@ -11,7 +12,7 @@ from pydantic import BaseModel
 from app.core.auth import Claims
 from app.core.config import get_settings
 from app.models.files import File
-from app.repositories.files import FileRepo
+from app.repositories.files import FileRepo, QuotaExceeded
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -42,19 +43,6 @@ def minio_client() -> Minio:
     )
 
 
-def _prefix(claims: Claims) -> str:
-    # Each user owns the keys under their Keycloak `sub`: nobody lists or reads
-    # another user's files.
-    return f"{claims['sub']}/"
-
-
-def _key(claims: Claims, name: str) -> str:
-    # A path parameter never holds a `/`, but an upload's filename can.
-    if name in ("", ".", "..") or "/" in name or "\\" in name or len(name) > 255:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid file name")
-    return _prefix(claims) + name
-
-
 def _sweep(repo: FileRepo) -> None:
     """Drop reservations whose upload never finished, and the bytes they may
     have left behind."""
@@ -78,18 +66,78 @@ def list_files(
     return [FileInfo.of(row) for row in repo.list(claims["sub"], limit=limit, offset=offset)]
 
 
-@router.post("", status_code=status.HTTP_204_NO_CONTENT)
-def upload_file(claims: Claims, file: UploadFile) -> Response:
-    # Same name overwrites; the bucket is versioned, so the old copy is kept.
-    minio_client().put_object(
-        get_settings().s3_bucket,
-        _key(claims, file.filename or ""),
-        file.file,
-        length=-1,
-        part_size=10 * 1024 * 1024,
-        content_type=file.content_type or "application/octet-stream",
-    )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+def _validated_name(raw: str) -> str:
+    """Validate a *display* name.
+
+    The object key is a UUID now, so a slash in the name can no longer escape
+    the owner's prefix -- traversal is structurally impossible rather than
+    merely filtered. What is left are display rules: something non-empty, no
+    control characters, and short enough to show in a table.
+    """
+    name = raw.strip()
+    if not name or name in (".", "..") or len(name) > 255:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid file name")
+    if any(character < " " or character == "\x7f" for character in name):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid file name")
+    return name
+
+
+def _measure(stream) -> int:
+    """Exact size of an already-buffered upload. Starlette has read the whole
+    body before the handler runs, so this is authoritative -- the
+    Content-Length check below is only there to reject the obvious early."""
+    stream.seek(0, os.SEEK_END)
+    size = stream.tell()
+    stream.seek(0)
+    return size
+
+
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=FileInfo)
+def upload_file(claims: Claims, repo: FileRepo, file: UploadFile) -> FileInfo:
+    settings = get_settings()
+    name = _validated_name(file.filename or "")
+
+    if any(name.lower().endswith(suffix) for suffix in settings.denied_extensions):
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Files of this type are not accepted: {name}"
+        )
+
+    size = _measure(file.file)
+    if size > settings.max_upload_bytes:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"File is {size} bytes; the limit is {settings.max_upload_bytes}",
+        )
+
+    content_type = file.content_type or "application/octet-stream"
+    try:
+        row = repo.reserve(
+            claims["sub"],
+            name=name,
+            folder_id=None,
+            size_bytes=size,
+            content_type=content_type,
+            quota_bytes=settings.user_quota_bytes,
+        )
+    except QuotaExceeded as e:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"Quota exceeded: {e.used} of {e.limit} bytes used, {e.needed} more needed",
+        ) from e
+
+    try:
+        written = minio_client().put_object(
+            settings.s3_bucket, row.object_key, file.file, length=size, content_type=content_type
+        )
+    except S3Error as e:
+        # The reservation is released immediately rather than waiting for the
+        # sweeper, so a storage outage does not eat anyone's quota for an hour.
+        repo.abandon(row)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Storage is unavailable") from e
+
+    repo.finalize(row, s3_version_id=written.version_id or "", actor_sub=claims["sub"])
+    repo.audit(claims["sub"], "upload", "file", row.id, {"name": name, "size": size})
+    return FileInfo.of(row)
 
 
 @router.get("/{file_id}", response_model=FileInfo)
