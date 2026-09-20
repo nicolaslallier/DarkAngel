@@ -110,13 +110,6 @@ class FakeMinio:
         # The real client returns an ObjectWriteResult; only version_id is read.
         return SimpleNamespace(version_id=f"v-{len(self.objects)}")
 
-    def list_objects(self, _bucket, prefix):
-        return [
-            SimpleNamespace(object_name=k, size=len(v[0]), last_modified=None)
-            for k, v in self.objects.items()
-            if k.startswith(prefix)
-        ]
-
     def get_object(self, _bucket, key):
         if key not in self.objects:
             raise S3Error(None, "NoSuchKey", "missing", key, "", "")
@@ -178,7 +171,9 @@ class FakeFileRepository:
         )
 
     def used_bytes(self, owner_sub):
-        return sum(r.size_bytes for r in self.rows if r.owner_sub == owner_sub and not r.deleted_at)
+        # No deleted_at filter, matching FileRepository.used_bytes: BR-9 says
+        # trashed files keep counting until purged.
+        return sum(r.size_bytes for r in self.rows if r.owner_sub == owner_sub)
 
     def reserve(self, owner_sub, *, name, folder_id, size_bytes, content_type, quota_bytes):
         used = self.used_bytes(owner_sub)

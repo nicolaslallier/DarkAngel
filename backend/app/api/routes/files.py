@@ -52,7 +52,13 @@ def _sweep(repo: FileRepo) -> None:
     have left behind."""
     bucket = get_settings().s3_bucket
     for key in repo.sweep_pending():
-        with suppress(S3Error):
+        # Exception, not S3Error: an unreachable MinIO raises urllib3's
+        # MaxRetryError, which is no relation to S3Error. The sweep is
+        # opportunistic cleanup riding along on a listing that needs no object
+        # storage at all, so it must never be what fails that listing (§12).
+        # ponytail: sweep_pending commits the row DELETEs before these removes,
+        # so an outage here orphans the bytes; deleting the object first would close it.
+        with suppress(Exception):
             minio_client().remove_object(bucket, key)
 
 

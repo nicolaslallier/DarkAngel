@@ -9,8 +9,14 @@ the object to its new key.
 
     mc mirror --preserve infra/darkangel-files ./darkangel-files-backup
 
-Idempotent: a key already recorded in files.object_key is skipped, so a run
+Idempotent: a key already recorded in files.object_key is skipped, and an
+object that cannot be indexed is left exactly where it was, so a run
 interrupted halfway can simply be repeated.
+
+Legacy names differing only in case (`A.txt` and `a.txt`) cannot both become
+rows -- uq_files_folder_name keys on lower(name) -- so the second one is
+reported as skipped and left under its old key for an operator to rename by
+hand. The run continues; it never aborts on one.
 """
 
 import argparse
@@ -18,6 +24,7 @@ import uuid
 
 from minio.commonconfig import CopySource
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.routes.files import minio_client
 from app.core.config import get_settings
@@ -38,13 +45,17 @@ def _is_uuid(value: str) -> bool:
     return True
 
 
-def backfill(*, confirm: bool = False, dry_run: bool = False) -> list[tuple[str, str]]:
+def backfill(
+    *, confirm: bool = False, dry_run: bool = False
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Return the (old, new) keys moved, and the old keys skipped untouched."""
     if not confirm:
         raise RuntimeError(MIRROR_WARNING)
 
     settings = get_settings()
     client = minio_client()
     moved: list[tuple[str, str]] = []
+    skipped: list[str] = []
 
     with session_factory()() as session:
         known = set(session.scalars(select(File.object_key)).all())
@@ -57,8 +68,8 @@ def backfill(*, confirm: bool = False, dry_run: bool = False) -> list[tuple[str,
 
             file_id = uuid.uuid4()
             new_key = f"{owner_sub}/{file_id}"
-            moved.append((old_key, new_key))
             if dry_run:
+                moved.append((old_key, new_key))
                 continue
 
             written = client.copy_object(
@@ -87,13 +98,24 @@ def backfill(*, confirm: bool = False, dry_run: bool = False) -> list[tuple[str,
             row.current_version_id = version.id
             session.add(row)
             session.add(version)
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                # uq_files_folder_name keys on lower(name), and the old API
+                # never case-folded, so `A.txt` and `a.txt` are both legitimate
+                # legacy keys. Undo the copy and carry on: aborting here would
+                # strand an orphan that the next run duplicates again.
+                session.rollback()
+                client.remove_object(settings.s3_bucket, new_key)
+                skipped.append(old_key)
+                continue
 
+            moved.append((old_key, new_key))
             # Only after the row is committed: a crash here leaves a duplicate
             # object, which the next run skips, rather than a lost file.
             client.remove_object(settings.s3_bucket, old_key)
 
-    return moved
+    return moved, skipped
 
 
 def main() -> None:
@@ -102,10 +124,12 @@ def main() -> None:
     parser.add_argument("--confirm", action="store_true", help="acknowledge the mirror warning")
     args = parser.parse_args()
 
-    moved = backfill(confirm=args.confirm or args.dry_run, dry_run=args.dry_run)
+    moved, skipped = backfill(confirm=args.confirm or args.dry_run, dry_run=args.dry_run)
     for old_key, new_key in moved:
         print(f"{'would move' if args.dry_run else 'moved'} {old_key} -> {new_key}")
-    print(f"{len(moved)} object(s)")
+    for old_key in skipped:
+        print(f"SKIPPED {old_key}: name collides with another only by case; rename it and re-run")
+    print(f"{len(moved)} object(s), {len(skipped)} skipped")
 
 
 if __name__ == "__main__":

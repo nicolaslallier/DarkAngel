@@ -25,6 +25,11 @@ class FileRepository:
 
     This is the only thing separating two users now that the MinIO key prefix
     no longer does it structurally -- see docs/files-feature.md risk R-1.
+
+    One deliberate exception: `sweep_pending` takes no `owner_sub` and deletes
+    stale reservations across all owners. It is a janitor, so global scope is
+    the point, and it is safe because it returns only object keys to the caller
+    for deletion -- no row and no owner's data ever reaches a response.
     """
 
     def __init__(self, db: Session) -> None:
@@ -66,9 +71,13 @@ class FileRepository:
         return self.db.scalars(statement).one_or_none()
 
     def used_bytes(self, owner_sub: str) -> int:
-        # Pending rows count: the pending insert is the quota reservation.
+        # Every row of this owner's, with no `deleted_at` filter. BR-9: trashed
+        # files still count until purged -- a soft delete marks the row and
+        # leaves the bytes in MinIO, and Phase 1 has no purge, so excluding
+        # them would let one account delete-and-reupload without bound.
+        # Pending rows count too: the pending insert is the quota reservation.
         statement = select(func.coalesce(func.sum(File.size_bytes), 0)).where(
-            File.owner_sub == owner_sub, File.deleted_at.is_(None)
+            File.owner_sub == owner_sub
         )
         return self.db.scalar(statement) or 0
 
@@ -171,7 +180,13 @@ class FileRepository:
 
     def sweep_pending(self, older_than_seconds: int = 3600) -> list[str]:
         """Drop reservations whose upload never finished, returning the object
-        keys the caller should try to delete from MinIO."""
+        keys the caller should try to delete from MinIO.
+
+        Deliberately global: unlike every other method here this takes no
+        `owner_sub` and sweeps all owners, because a janitor that only tidied
+        the caller's own rows would never reach an absent user's. Only keys
+        leave this method, so the wider scope leaks nothing.
+        """
         cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
         stale = self.db.scalars(
             select(File).where(File.status == "pending", File.created_at < cutoff)

@@ -109,6 +109,24 @@ def test_listing_sweeps_abandoned_reservations(repo, store):
     assert store.objects == {}
 
 
+def test_listing_survives_a_sweep_against_unreachable_storage(repo, store):
+    """§12: GET /api/files needs no object storage, so a MinIO outage during
+    the ride-along sweep must not turn it into a 500. An unreachable server
+    raises urllib3's MaxRetryError, which is not an S3Error."""
+
+    def unreachable(_bucket, _key):
+        raise RuntimeError("Max retries exceeded")
+
+    seed(repo)
+    repo.swept = ["user-1/orphan"]
+    store.remove_object = unreachable
+
+    response = client.get("/api/files", headers=auth())
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
 def upload(name="a.txt", data=b"hello", sub="user-1", content_type="text/plain"):
     return client.post("/api/files", headers=auth(sub), files={"file": (name, data, content_type)})
 

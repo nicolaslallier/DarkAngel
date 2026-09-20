@@ -249,9 +249,13 @@ add a single covered line to the real module. Un-omitted they drag that job to
 76% and it fails the 80 gate for a reason unrelated to test quality.
 
 They are gated instead by `backend-integration`: 14 tests in
-`tests/integration/test_repository.py` and 7 in
-`tests/integration/test_backfill.py`. Under the integration suite the
-repository reaches 100% and the backfill script 83%.
+`tests/integration/test_repository.py` and 8 in
+`tests/integration/test_backfill.py`. Those 22 alone reach 99% of the
+repository and 83% of the backfill script — the single repository miss is the
+`file_repository` DI factory, which they bypass by constructing
+`FileRepository` directly. The factory is covered by the rest of the suite
+(`test_files_minio.py` drives the real routes), so `-m integration` as a whole,
+and `make coverage-backend`, both report 100% for the repository.
 
 The threshold itself was not lowered and no test was weakened. With the
 omission the job measures 284 statements and reports 96%; `make

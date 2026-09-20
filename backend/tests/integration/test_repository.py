@@ -105,6 +105,9 @@ def test_soft_delete_hides_the_file_but_keeps_the_row(repository, db):
     assert repository.list("user-1") == []
     assert repository.get("user-1", row.id) is None
     assert db.query(File).count() == 1
+    # BR-9: the bytes are still in MinIO (Phase 1 has no purge), so they still
+    # count -- otherwise delete-and-reupload would be an unbounded quota bypass.
+    assert repository.used_bytes("user-1") == row.size_bytes
 
 
 def test_add_version_increments_and_resizes(repository):
