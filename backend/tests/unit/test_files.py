@@ -1,52 +1,10 @@
-from types import SimpleNamespace
-
 import pytest
 from fastapi.testclient import TestClient
-from minio.error import S3Error
 
-from app.api.routes import files
 from app.main import app
 from tests.conftest import token
 
 client = TestClient(app)
-
-
-class FakeMinio:
-    """The slice of minio.Minio the files routes use, over a dict."""
-
-    def __init__(self):
-        self.objects: dict[str, tuple[bytes, str]] = {}
-
-    def put_object(self, _bucket, key, data, length, part_size, content_type):
-        self.objects[key] = (data.read(), content_type)
-
-    def list_objects(self, _bucket, prefix):
-        return [
-            SimpleNamespace(object_name=k, size=len(v[0]), last_modified=None)
-            for k, v in self.objects.items()
-            if k.startswith(prefix)
-        ]
-
-    def get_object(self, _bucket, key):
-        if key not in self.objects:
-            raise S3Error(None, "NoSuchKey", "missing", key, "", "")
-        data, content_type = self.objects[key]
-        return SimpleNamespace(
-            headers={"Content-Type": content_type, "Content-Length": str(len(data))},
-            stream=lambda _size: iter([data]),
-            close=lambda: None,
-            release_conn=lambda: None,
-        )
-
-    def remove_object(self, _bucket, key):
-        self.objects.pop(key, None)
-
-
-@pytest.fixture(autouse=True)
-def store(monkeypatch):
-    fake = FakeMinio()
-    monkeypatch.setattr(files, "minio_client", lambda: fake)
-    return fake
 
 
 def auth(sub="user-1"):
@@ -74,7 +32,7 @@ def test_upload_list_download_delete(store):
     assert store.objects == {}
 
 
-def test_users_only_see_their_own_files():
+def test_users_only_see_their_own_files(store):
     upload("secret.txt", sub="user-1")
 
     assert client.get("/api/files", headers=auth("user-2")).json() == []

@@ -35,7 +35,8 @@ DIST ?= dist
         install install-backend install-frontend install-ci \
         dev-backend dev-frontend backend frontend \
         lint lint-backend lint-frontend format format-check typecheck \
-        test test-backend coverage \
+        test test-backend test-unit test-integration test-regression test-frontend \
+        snapshot coverage coverage-backend coverage-frontend \
         build build-backend build-frontend preview \
         up pull down delete webhook stack-selftest deploy keycloak-client minio \
         runner-env check-runner-env runner-up runner-down runner-restart \
@@ -119,6 +120,9 @@ test: test-backend ## Run the test suites
 
 test-backend: $(PY) ## pytest; pass extra args with ARGS="tests/test_health.py -k ok"
 	cd $(BACKEND) && .venv/bin/python -m pytest $(ARGS)
+
+test-unit: $(PY) ## Backend unit tests (everything faked, no services needed)
+	cd $(BACKEND) && .venv/bin/python -m pytest -m unit $(ARGS)
 
 coverage: $(PY) ## pytest with coverage, failing under COVERAGE_MIN%
 	cd $(BACKEND) && .venv/bin/python -m pytest \
