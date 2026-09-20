@@ -8,14 +8,21 @@ remember and none to forget.
 
 | Suite | Where | What is real | CI job |
 |---|---|---|---|
-| Backend unit | `backend/tests/unit/` (5 tests) | Nothing outside the process. MinIO is `FakeMinio`, Keycloak is a fake JWKS. | `backend-unit` |
-| Backend regression | `backend/tests/regression/` (14 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
-| Backend integration | `backend/tests/integration/` (9 tests) | A real MinIO, in a throwaway bucket. Auth stays faked. | `backend-integration` |
+| Backend unit | `backend/tests/unit/` (41 tests) | Nothing outside the process. MinIO is `FakeMinio`, the database is `FakeFileRepository`, Keycloak is a fake JWKS. | `backend-unit` |
+| Backend regression | `backend/tests/regression/` (23 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
+| Backend integration | `backend/tests/integration/` (45 tests) | A real MinIO in a throwaway bucket, and a real PostgreSQL migrated to head. Auth stays faked. | `backend-integration` |
 | Frontend unit | `frontend/tests/unit/` | jsdom. `fetch` and `oidc-client-ts` are mocked. | `frontend` |
 | Frontend regression | `frontend/tests/regression/` | Same as frontend unit. | `frontend` |
 
-Frontend unit + regression together are 36 tests across 8 files (Vitest 5,
+Frontend unit + regression together are 37 tests across 8 files (Vitest 5,
 `frontend/vite.config.ts`'s `test` block).
+
+Route logic is unit-tested against `FakeFileRepository` and the real SQL behind
+it is exercised only by the integration suite. That split is deliberate: the
+`backend-unit` CI job measures coverage over `-m "unit or regression"` alone,
+because it has no services, so anything that only a real database can run is
+invisible to that gate. `make coverage-backend` does append all three suites
+and sees the whole picture.
 
 Keycloak is never real, not even in integration: the suite signs its own RS256
 tokens against a key it generates, and `backend/tests/conftest.py`'s
@@ -26,20 +33,21 @@ suite.
 ## Running them
 
 ```sh
-make test              # every suite; integration skips if MinIO is down
+make test              # every suite; integration skips if the services are down
 make test-unit         # backend unit only, no services needed
 make test-regression   # backend regression only
-make test-integration  # backend integration; needs MinIO
+make test-integration  # backend integration; needs MinIO + Postgres
 make test-frontend     # vitest
 make coverage          # both sides; the backend fails under 80%
 ```
 
-Integration needs a MinIO on `localhost:9000`:
+Integration needs a MinIO on `localhost:9000` and a PostgreSQL on
+`localhost:5432`:
 
 ```sh
-make minio-test-up     # docker-compose.test.yml, MinIO alone
+make services-test-up   # docker-compose.test.yml: MinIO + Postgres
 make test-integration
-make minio-test-down   # also drops its data
+make services-test-down # also drops their data
 ```
 
 Narrow a run with `ARGS`:
@@ -61,20 +69,20 @@ Every backend run ends with up to three blocks, printed by
 
 ```
 --------------------------------- modules run ----------------------------------
-  tests/unit/test_auth.py                               1 test
-  tests/unit/test_files.py                              3 tests
+  tests/unit/test_auth.py                               5 tests
+  tests/unit/test_files.py                             35 tests
   tests/unit/test_health.py                             1 test
 ------------------------------ skipped at runtime ------------------------------
-    9 tests  Skipped: MinIO unreachable at localhost:9000: HTTPConnectionPool …
+   45 tests  Skipped: MinIO unreachable at localhost:9000: HTTPConnectionPool …
 ------------------- deselected by -m (not run in this pass) --------------------
-  integration                                           9 tests   -> make test-integration
-  regression                                           14 tests   -> make test-regression
+  integration                                          45 tests   -> make test-integration
+  regression                                           23 tests   -> make test-regression
 ```
 
 - **modules run** — one line per test module that actually executed, with how
   many of its tests did. This is the answer to "what did this pass cover".
 - **skipped at runtime** — collected but skipped, one line per distinct
-  *reason*, not per test: nine integration tests skip over the same
+  *reason*, not per test: every integration test skips over the same
   unreachable MinIO, and that is one line. `-rs` prints them per test.
 - **deselected by -m** — what the marker filter removed, grouped by suite,
   each with the target that would run it. pytest's own summary gives only a
@@ -86,7 +94,7 @@ as a list at the end of a long run. Deliberately not `-ra`: that repeats a
 skip reason once per test.
 
 The frontend reporter is `verbose` (`frontend/vite.config.ts`), so vitest
-names all 36 tests instead of collapsing a green run to `8 passed (8)`.
+names all 37 tests instead of collapsing a green run to `8 passed (8)`.
 
 ## How the markers work
 
@@ -103,7 +111,14 @@ Putting a test file in the right directory is the entire contract. No test in
 this repository carries a marker decorator. A test in `tests/unit/` must never
 touch the network or a service.
 
-## The integration bucket
+## The integration services
+
+Two session fixtures in `backend/tests/integration/conftest.py` own the real
+services: `minio_bucket` and `pg_database`. They share a shape — default the
+environment the app reads, clear the `lru_cache`s that already read it, and
+fail rather than skip when `CI=true`.
+
+### The bucket
 
 The app does not create its own bucket — in production `make minio` does. So
 `backend/tests/integration/conftest.py` creates one per session, named
@@ -119,10 +134,31 @@ Exporting any `DARKANGEL_S3_*` variable before the run targets a different
 MinIO instead of the compose one (the fixture only fills in values that are
 still unset).
 
-**Unreachable MinIO skips locally and fails in CI.** The switch is the `CI`
-environment variable, which GitHub Actions sets to `true` for the
-`backend-integration` job. A broken service must never turn a CI run green by
-skipping.
+### The database
+
+`pg_database` defaults `DARKANGEL_DATABASE_URL` to
+`postgresql+psycopg://darkangel:darkangel@localhost:5432/darkangel`, clears
+`get_settings()` plus `db.engine()` and `db.session_factory()` — an engine
+built before the URL was set would point at the unreachable production host
+for the rest of the session — and then runs `alembic upgrade head` itself.
+Nothing in CI migrates separately; the fixture is the migration step.
+
+The per-test `db` fixture truncates between tests:
+`TRUNCATE audit_log, file_versions, files, folders RESTART IDENTITY CASCADE`.
+TRUNCATE, not DELETE, because `audit_log` carries a `BEFORE DELETE` trigger
+that makes it append-only and TRUNCATE does not fire row triggers.
+
+As with the bucket, exporting `DARKANGEL_DATABASE_URL` before the run targets
+a different database instead of the compose one.
+
+The suite also shadows the shared `store` and `repo` fixtures with ones that
+fail on sight: an integration test that asked for `FakeMinio` or
+`FakeFileRepository` would quietly stop being an integration test.
+
+**An unreachable service skips locally and fails in CI.** The switch is the
+`CI` environment variable, which GitHub Actions sets to `true` for the
+`backend-integration` job, and both fixtures read it. A broken service must
+never turn a CI run green by skipping.
 
 The restore (env vars + both `lru_cache`s) runs at *session* teardown, after
 every test in the process has already run. That is why integration always
@@ -170,7 +206,8 @@ which is the whole point: an API change is visible in review instead of silent.
 
 `.github/workflows/ci.yml` runs three jobs in parallel: `backend-unit` (lint +
 unit + regression + coverage gate), `backend-integration` (starts a real MinIO
-container, then the integration suite), and `frontend` (vitest with coverage,
+container and a `postgres:16-alpine` service container, then the integration
+suite), and `frontend` (vitest with coverage,
 then `npm run build`, which type-checks with `vue-tsc` first). Each uploads its
 JUnit XML as a workflow artifact — `backend-unit` also uploads `coverage.xml`
 (the only job with a `--cov` flag; `backend-integration` has none), and
@@ -192,7 +229,7 @@ GitHub yet, so treat this section as intent rather than an observed run.
 - **`backend-integration` red with `MinIO never became ready`** — the service
   did not come up in time; the job prints `docker logs minio` on failure.
 - **`backend-integration` red on a test** — reproduce with
-  `make minio-test-up && make test-integration`.
+  `make services-test-up && make test-integration`.
 - **`frontend` red in the build step** — the tests are type-checked too
   (`tsconfig.app.json` includes `tests/**/*.ts` alongside `src/**/*`);
   `npm run build` (`vue-tsc -b && vite build`) reproduces it.
@@ -201,9 +238,13 @@ GitHub yet, so treat this section as intent rather than an observed run.
 
 The backend gate is `COVERAGE_MIN`, 80, enforced by `make coverage-backend`
 (three suite processes `--cov-append`-ed into one report, with `--fail-under`
-applied once to the combined total — currently around 97%) and separately by
-the `backend-unit` CI job (unit + regression only, since that job never has a
-real MinIO). The frontend reports coverage (`make coverage-frontend`, around
+applied once to the combined total — currently 96%) and separately by the
+`backend-unit` CI job (unit + regression only, since that job has no services).
+
+Those two numbers are far apart now: unit + regression alone is 76%, because
+`app/repositories/files.py` (38%) and `app/scripts/backfill.py` (24%) are
+reachable only from the integration suite. The CI job's `--cov-fail-under`
+therefore sees a number the local target never shows. The frontend reports coverage (`make coverage-frontend`, around
 74% at the time of writing) but has no threshold yet: set one in
 `frontend/vite.config.ts`'s `test.coverage` block from the first measured CI
 baseline, and never below it.

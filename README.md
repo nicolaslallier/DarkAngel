@@ -40,7 +40,7 @@ served separately from the backend.
 ```sh
 make test              # every suite: unit, integration, regression, frontend
 make test-unit         # backend unit only (no services needed)
-make test-integration  # backend integration (needs `make minio-test-up`)
+make test-integration  # backend integration (needs `make services-test-up`)
 make test-regression   # backend regression: pinned bugs + OpenAPI contract
 make test-frontend     # vitest
 make coverage          # both sides, backend fails under 80%

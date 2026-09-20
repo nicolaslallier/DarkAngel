@@ -17,6 +17,15 @@
       },
       "FileInfo": {
         "properties": {
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
           "modified": {
             "anyOf": [
               {
@@ -39,8 +48,10 @@
           }
         },
         "required": [
+          "id",
           "name",
           "size",
+          "content_type",
           "modified"
         ],
         "title": "FileInfo",
@@ -179,6 +190,31 @@
     "/api/files": {
       "get": {
         "operationId": "list_files_api_files_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -193,6 +229,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -218,8 +264,25 @@
           "required": true
         },
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileInfo"
+                }
+              }
+            },
             "description": "Successful Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileInfo"
+                }
+              }
+            },
+            "description": "Created"
           },
           "422": {
             "content": {
@@ -243,16 +306,18 @@
         ]
       }
     },
-    "/api/files/{name}": {
+    "/api/files/{file_id}": {
       "delete": {
-        "operationId": "delete_file_api_files__name__delete",
+        "description": "Soft: the row is marked, the bytes stay. From the outside this is what\ntoday's delete already looks like -- the bucket is versioned, so even the\nold hard delete only ever wrote a delete marker. The Trash that makes the\ndifference visible is Phase 3.",
+        "operationId": "delete_file_api_files__file_id__delete",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "file_id",
             "required": true,
             "schema": {
-              "title": "Name",
+              "format": "uuid",
+              "title": "File Id",
               "type": "string"
             }
           }
@@ -283,14 +348,77 @@
         ]
       },
       "get": {
-        "operationId": "download_file_api_files__name__get",
+        "operationId": "get_file_api_files__file_id__get",
         "parameters": [
           {
             "in": "path",
-            "name": "name",
+            "name": "file_id",
             "required": true,
             "schema": {
-              "title": "Name",
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get File",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/files/{file_id}/content": {
+      "get": {
+        "operationId": "download_file_api_files__file_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "disposition",
+            "required": false,
+            "schema": {
+              "default": "attachment",
+              "enum": [
+                "attachment",
+                "inline"
+              ],
+              "title": "Disposition",
               "type": "string"
             }
           }
