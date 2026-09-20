@@ -1,0 +1,13 @@
+# Coverage config for the `backend-unit` CI job ONLY, which runs
+# `-m "unit or regression"` with no services. The two modules below are
+# exercised only against a real PostgreSQL, so that run cannot reach them --
+# `FakeFileRepository` substitutes for the repository rather than exercising
+# it. They are gated instead by the backend-integration job: 14 tests in
+# tests/integration/test_repository.py and 7 in tests/integration/test_backfill.py.
+#
+# `make coverage-backend` does NOT use this file: it appends all three suites
+# and holds every module to COVERAGE_MIN.
+[run]
+omit =
+    app/repositories/files.py
+    app/scripts/backfill.py

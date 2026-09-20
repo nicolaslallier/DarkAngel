@@ -37,10 +37,14 @@ jobs:
           .venv/bin/python -m ruff check .
 
       - name: Test
+        # --cov-config scopes the gate to what a service-less run can reach:
+        # .coveragerc.ci omits the repository and the backfill script, which
+        # only a real PostgreSQL exercises (backend-integration gates those).
         run: |
           .venv/bin/python -m pytest -m "unit or regression" \
             --junitxml=reports/junit.xml \
-            --cov=app --cov-report=term-missing --cov-report=xml \
+            --cov=app --cov-config=.coveragerc.ci \
+            --cov-report=term-missing --cov-report=xml \
             --cov-fail-under="$COVERAGE_MIN"
 
       - name: Summary
