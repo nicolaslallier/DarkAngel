@@ -120,7 +120,7 @@ format-check: $(PY) ## Fail if the backend is not formatted (CI gate)
 # DARKANGEL_S3_* in the environment, which must not reach the other suites.
 test: test-unit test-integration test-regression test-frontend ## Run every suite
 
-test-backend: $(PY) ## pytest; pass extra args with ARGS="tests/test_health.py -k ok"
+test-backend: $(PY) ## pytest; pass extra args with ARGS="tests/unit/test_health.py -k ok"
 	cd $(BACKEND) && .venv/bin/python -m pytest $(ARGS)
 
 test-unit: $(PY) ## Backend unit tests (everything faked, no services needed)

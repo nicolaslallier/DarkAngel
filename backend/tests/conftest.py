@@ -19,8 +19,12 @@ def pytest_collection_modifyitems(items):
     # The directory a test lives in is its suite, so no test needs a decorator.
     for item in items:
         suite = item.path.parent.name
-        if suite in MARKERS:
-            item.add_marker(suite)
+        if suite not in MARKERS:
+            raise pytest.UsageError(
+                f"{item.path} is not in tests/{{unit,integration,regression}}/, "
+                "so no suite would run it."
+            )
+        item.add_marker(suite)
 
 
 @pytest.fixture(autouse=True)

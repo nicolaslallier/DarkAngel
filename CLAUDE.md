@@ -10,10 +10,11 @@ under the `/api` prefix.
 
 ## Commands
 
-The root `Makefile` is the entrypoint for everything, including CI — run
-`make help` for the full list. `make ci` is the exact gate
-`.github/workflows/ci.yml` runs; `make verify` is that gate without the
-reinstall. The raw equivalents:
+The root `Makefile` covers local development plus every check CI runs — run
+`make help` for the full list. `.github/workflows/ci.yml` calls no make
+target: it runs the same underlying tools directly, plus a backend coverage
+gate (`--cov-fail-under`) that `make coverage` reproduces locally. `make
+verify` is the closest local equivalent of that gate. The raw equivalents:
 
 ```sh
 make install                                   # install both sides

@@ -10,7 +10,7 @@ remember and none to forget.
 |---|---|---|---|
 | Backend unit | `backend/tests/unit/` (5 tests) | Nothing outside the process. MinIO is `FakeMinio`, Keycloak is a fake JWKS. | `backend-unit` |
 | Backend regression | `backend/tests/regression/` (13 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
-| Backend integration | `backend/tests/integration/` (10 tests) | A real MinIO, in a throwaway bucket. Auth stays faked. | `backend-integration` |
+| Backend integration | `backend/tests/integration/` (9 tests) | A real MinIO, in a throwaway bucket. Auth stays faked. | `backend-integration` |
 | Frontend unit | `frontend/tests/unit/` | jsdom. `fetch` and `oidc-client-ts` are mocked. | `frontend` |
 | Frontend regression | `frontend/tests/regression/` | Same as frontend unit. | `frontend` |
 
@@ -91,11 +91,14 @@ environment variable, which GitHub Actions sets to `true` for the
 skipping.
 
 The restore (env vars + both `lru_cache`s) runs at *session* teardown, after
-every test in the process has already run. That is why `make test`,
-`coverage-backend`, and CI itself run unit, regression and integration as
-**separate pytest processes** rather than one combined invocation — a shared
+every test in the process has already run. That is why integration always
+runs in its own pytest process, separate from unit and regression — a shared
 process would leave the unit or regression tests reading the integration
-suite's throwaway bucket settings.
+suite's throwaway bucket settings. `make test` and `coverage-backend` run all
+three suites as three separate processes; CI runs unit+regression together as
+one process (`pytest -m "unit or regression"`) and integration in a second.
+The invariant that matters is only that integration never shares a process
+with the others.
 
 ## Writing a regression test
 
@@ -106,8 +109,11 @@ One file per fixed bug, named `test_<issue-or-pr>_<slug>.py` on the backend
 issue or PR, and what the original failure looked like — the point is that
 someone reading the test in two years knows why it exists.
 
-Move the check out of wherever it was; never leave a copy behind. Every check
-lives in exactly one suite.
+Move the check out of wherever it was; never leave a copy behind. A regression
+check pins one fixed bug and lives in exactly one suite — never copy it into a
+second. That is different from the unit/integration layering: the same
+scenario may legitimately appear at both layers, once against `FakeMinio` and
+once against a real MinIO, because each proves something the other cannot.
 
 Before trusting a new regression test, reintroduce the bug and watch it fail.
 

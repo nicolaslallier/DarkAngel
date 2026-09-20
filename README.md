@@ -56,12 +56,14 @@ directory decides the marker, and how to write a regression test.
 
 ## CI/CD
 
-`make` is the single entrypoint; `.github/workflows/ci.yml` only calls these
-targets, so the pipeline runs identically on a laptop and on a runner.
+`.github/workflows/ci.yml` calls no make target — it runs the same underlying
+tools (ruff, pytest, vitest, vue-tsc, vite build) directly, plus a backend
+coverage gate (`--cov-fail-under`) that `make coverage` reproduces locally.
+`make verify` is the closest local equivalent of that gate.
 
 ```sh
-make ci        # what CI runs: install-ci, then the full gate
-make verify    # the same gate against an existing install (faster, local)
+make verify    # local equivalent of the CI gate, against an existing install
+make coverage  # both sides; backend fails under COVERAGE_MIN, same as CI's gate
 make release   # build and collect artifacts into dist/
 ```
 

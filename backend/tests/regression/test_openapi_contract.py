@@ -25,7 +25,9 @@ def dump(schema: dict) -> str:
 def test_openapi_matches_the_snapshot():
     assert json.loads(SNAPSHOT.read_text()) == app.openapi(), (
         "The OpenAPI schema no longer matches tests/regression/openapi.snapshot.json. "
-        "If the change is intended, run `make snapshot` and review the diff in the PR."
+        "If the change is intended, run `make snapshot` and review the diff in the PR. "
+        "Regenerate only after confirming the API change was intentional — an unpinned "
+        "FastAPI/Pydantic upgrade can move the schema too."
     )
 
 

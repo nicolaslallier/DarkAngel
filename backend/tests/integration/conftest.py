@@ -82,3 +82,14 @@ def minio_bucket():
             client.remove_bucket(settings.s3_bucket)
     finally:
         restore()
+
+
+@pytest.fixture
+def store():
+    """Shadow the shared `store` fixture: it swaps in `FakeMinio`, which
+    would silently defeat this suite's whole point of running against real
+    MinIO. Integration tests must not request it."""
+    pytest.fail(
+        "integration tests run against real MinIO; the FakeMinio `store` "
+        "fixture is unit/regression only"
+    )

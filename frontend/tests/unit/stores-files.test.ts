@@ -14,7 +14,7 @@ const aFile = { name: 'a.txt', size: 5, modified: null }
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  vi.clearAllMocks()
+  vi.resetAllMocks()
   vi.mocked(listFiles).mockResolvedValue([aFile])
 })
 

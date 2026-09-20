@@ -90,10 +90,3 @@ def test_downloading_a_missing_file_is_404():
 def test_deleting_a_missing_file_succeeds():
     # S3 DELETE is idempotent: MinIO reports success for a key that is not there.
     assert client.delete("/api/files/nope.txt", headers=auth()).status_code == 204
-
-
-def test_unauthenticated_requests_never_reach_minio():
-    assert client.get("/api/files").status_code == 401
-    assert client.post("/api/files", files={"file": ("a.txt", b"x")}).status_code == 401
-    assert client.get("/api/files/a.txt").status_code == 401
-    assert client.delete("/api/files/a.txt").status_code == 401

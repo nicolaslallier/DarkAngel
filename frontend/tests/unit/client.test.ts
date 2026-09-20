@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiGet, apiRequest } from '@/api/client'
 import { accessToken } from '@/auth'
@@ -18,6 +18,13 @@ beforeEach(() => {
   fetchMock.mockReset()
   fetchMock.mockResolvedValue(response(200))
   vi.mocked(accessToken).mockResolvedValue(null)
+})
+
+afterEach(() => {
+  // Cleanup for the VITE_API_BASE_URL test below, in an afterEach so it runs
+  // even when that test's assertion fails partway through.
+  vi.resetModules()
+  vi.unstubAllEnvs()
 })
 
 describe('apiRequest', () => {
@@ -72,6 +79,5 @@ describe('apiGet', () => {
     await freshGet('/health')
 
     expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.test/health')
-    vi.unstubAllEnvs()
   })
 })
