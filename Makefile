@@ -32,7 +32,7 @@ VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' $(BACKEND)/pyproject.toml
 # Dist directory collecting every artifact `make release` produces.
 DIST ?= dist
 
-.PHONY: help version doctor \
+.PHONY: help version doctor doctor-backend doctor-frontend \
         install install-backend install-frontend install-ci \
         dev-backend dev-frontend backend frontend \
         lint lint-backend lint-frontend format format-check typecheck \
@@ -54,11 +54,13 @@ help: ## List the available targets
 version: ## Print the project version
 	@echo "$(VERSION)"
 
-doctor: ## Check that the required tools are on PATH
+doctor: doctor-backend doctor-frontend ## Check that all required tools are on PATH
+doctor-backend: ## Check the backend toolchain (uv) is on PATH
 	@command -v $(UV) >/dev/null || { echo "missing: uv (https://docs.astral.sh/uv/)"; exit 1; }
+	@echo "uv    $$($(UV) --version)"
+doctor-frontend: ## Check the frontend toolchain (npm + node) is on PATH
 	@command -v $(NPM) >/dev/null || { echo "missing: npm (Node.js 20+)"; exit 1; }
 	@command -v $(NODE) >/dev/null || { echo "missing: node (Node.js 20+ — install via npm's runtime or https://nodejs.org)"; exit 1; }
-	@echo "uv   $$($(UV) --version)"
 	@echo "npm $$($(NPM) --version)"
 	@echo "node $$($(NODE) --version)"
 
@@ -66,10 +68,10 @@ doctor: ## Check that the required tools are on PATH
 
 install: install-backend install-frontend ## Install both sides for local development
 
-install-backend: doctor ## Create backend/.venv and install the backend with dev extras
+install-backend: doctor-backend ## Create backend/.venv and install the backend with dev extras
 	cd $(BACKEND) && $(UV) venv --python $(PYTHON_VERSION) && $(UV) pip install -e ".[dev]"
 
-install-frontend: doctor ## Install frontend dependencies (npm install)
+install-frontend: doctor-frontend ## Install frontend dependencies (npm install)
 	cd $(FRONTEND) && $(NPM) install
 
 install-ci: doctor ## Reproducible install for CI (locked frontend deps)
@@ -129,10 +131,10 @@ coverage: $(PY) ## pytest with coverage, failing under COVERAGE_MIN%
 
 build: build-backend build-frontend ## Build both distributables
 
-build-backend: doctor ## Build the backend wheel and sdist into backend/dist
+build-backend: doctor-backend ## Build the backend wheel and sdist into backend/dist
 	cd $(BACKEND) && $(UV) build
 
-build-frontend: ## Type-check and build the SPA into frontend/dist
+build-frontend: doctor-frontend ## Type-check and build the SPA into frontend/dist
 	cd $(FRONTEND) && $(NPM) run build
 
 ## === pipelines ===
