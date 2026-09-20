@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 
-import { downloadFile } from '@/api/files'
+import { downloadFile, type HomeFile } from '@/api/files'
 import { useFilesStore } from '@/stores/files'
 
 const store = useFilesStore()
@@ -16,10 +16,10 @@ async function onPick(event: Event) {
 
 // The API wants a bearer token, so a plain <a href> cannot fetch the file:
 // fetch it, then hand the blob to a throwaway link.
-async function download(name: string) {
+async function download(file: HomeFile) {
   try {
-    const url = URL.createObjectURL(await downloadFile(name))
-    const link = Object.assign(document.createElement('a'), { href: url, download: name })
+    const url = URL.createObjectURL(await downloadFile(file.id))
+    const link = Object.assign(document.createElement('a'), { href: url, download: file.name })
     link.click()
     setTimeout(() => URL.revokeObjectURL(url))
   } catch (e) {
@@ -27,8 +27,8 @@ async function download(name: string) {
   }
 }
 
-function remove(name: string) {
-  if (confirm(`Delete ${name}?`)) store.remove(name)
+function remove(file: HomeFile) {
+  if (confirm(`Delete ${file.name}?`)) store.remove(file.id)
 }
 
 function formatSize(bytes: number) {
@@ -61,13 +61,13 @@ function formatSize(bytes: number) {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="file in store.files" :key="file.name">
+        <tr v-for="file in store.files" :key="file.id">
           <td>{{ file.name }}</td>
           <td>{{ formatSize(file.size) }}</td>
           <td>{{ file.modified ? new Date(file.modified).toLocaleString() : '' }}</td>
           <td class="actions">
-            <button type="button" @click="download(file.name)">Download</button>
-            <button type="button" @click="remove(file.name)">Delete</button>
+            <button type="button" @click="download(file)">Download</button>
+            <button type="button" @click="remove(file)">Delete</button>
           </td>
         </tr>
       </tbody>
