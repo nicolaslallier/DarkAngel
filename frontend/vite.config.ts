@@ -1,11 +1,22 @@
 import { fileURLToPath, URL } from 'node:url'
 
 import vue from '@vitejs/plugin-vue'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
+  test: {
+    // Components and the api client both touch the DOM and fetch.
+    environment: 'jsdom',
+    include: ['tests/**/*.test.ts'],
+    coverage: {
+      // No threshold yet: the first CI run is the baseline, and docs/testing.md
+      // says to raise it to that number and never below it.
+      reporter: ['text', 'lcov'],
+      include: ['src/**'],
+    },
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

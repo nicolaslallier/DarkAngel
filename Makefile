@@ -130,6 +130,12 @@ test-regression: $(PY) ## Backend regression tests (pinned bugs + API contract)
 test-integration: $(PY) ## Backend integration tests (needs MinIO; `make minio-test-up`)
 	cd $(BACKEND) && .venv/bin/python -m pytest -m integration $(ARGS)
 
+test-frontend: ## Frontend unit, component and regression tests (vitest)
+	cd $(FRONTEND) && $(NPM) run test
+
+coverage-frontend: ## Frontend coverage report (text + lcov)
+	cd $(FRONTEND) && $(NPM) run test:coverage
+
 minio-test-up: ## Start the MinIO the integration suite runs against
 	docker compose -f docker-compose.test.yml up -d --wait
 
