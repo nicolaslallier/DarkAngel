@@ -32,7 +32,13 @@ it('shows an empty state before anything is uploaded', async () => {
 
 it('lists what the API returns, with a human-readable size', async () => {
   vi.mocked(listFiles).mockResolvedValue([
-    { name: 'bail été.txt', size: 2048, modified: null },
+    {
+      id: '11111111-1111-1111-1111-111111111111',
+      name: 'bail été.txt',
+      size: 2048,
+      content_type: 'text/plain',
+      modified: null,
+    },
   ])
 
   const wrapper = render()
@@ -63,7 +69,15 @@ it('uploads every picked file and clears the input', async () => {
 })
 
 it('asks before deleting, and deletes when confirmed', async () => {
-  vi.mocked(listFiles).mockResolvedValue([{ name: 'a.txt', size: 5, modified: null }])
+  vi.mocked(listFiles).mockResolvedValue([
+    {
+      id: '11111111-1111-1111-1111-111111111111',
+      name: 'a.txt',
+      size: 5,
+      content_type: 'text/plain',
+      modified: null,
+    },
+  ])
   const wrapper = render()
   await flushPromises()
 
@@ -71,11 +85,19 @@ it('asks before deleting, and deletes when confirmed', async () => {
   await flushPromises()
 
   expect(confirm).toHaveBeenCalledWith('Delete a.txt?')
-  expect(deleteFile).toHaveBeenCalledWith('a.txt')
+  expect(deleteFile).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111')
 })
 
 it('does not delete when the confirmation is dismissed', async () => {
-  vi.mocked(listFiles).mockResolvedValue([{ name: 'a.txt', size: 5, modified: null }])
+  vi.mocked(listFiles).mockResolvedValue([
+    {
+      id: '11111111-1111-1111-1111-111111111111',
+      name: 'a.txt',
+      size: 5,
+      content_type: 'text/plain',
+      modified: null,
+    },
+  ])
   vi.stubGlobal('confirm', vi.fn(() => false))
   const wrapper = render()
   await flushPromises()

@@ -37,9 +37,9 @@ DIST ?= dist
         dev-backend dev-frontend backend frontend \
         lint lint-backend lint-frontend format format-check typecheck \
         test test-backend test-unit test-integration test-regression test-frontend \
-        snapshot minio-test-up minio-test-down coverage coverage-backend coverage-frontend \
+        snapshot services-test-up services-test-down migrate coverage coverage-backend coverage-frontend \
         build build-backend build-frontend preview \
-        up pull down delete webhook stack-selftest deploy keycloak-client minio \
+        up pull down delete webhook stack-selftest deploy keycloak-client minio postgres \
         runner-env check-runner-env runner-up runner-down runner-restart \
         runner-logs runner-status runner-pull runner-shell \
         up-local down-local restart ps logs \
@@ -151,7 +151,7 @@ test-unit: $(PY) ## Backend unit tests (everything faked, no services needed)
 test-regression: $(PY) ## Backend regression tests (pinned bugs + API contract)
 	cd $(BACKEND) && .venv/bin/python -m pytest -m regression $(ARGS)
 
-test-integration: $(PY) ## Backend integration tests (needs MinIO; `make minio-test-up`)
+test-integration: $(PY) ## Backend integration tests (needs MinIO + Postgres; `make services-test-up`)
 	cd $(BACKEND) && .venv/bin/python -m pytest -m integration $(ARGS)
 
 test-frontend: ## Frontend unit, component and regression tests (vitest)
@@ -160,14 +160,20 @@ test-frontend: ## Frontend unit, component and regression tests (vitest)
 coverage-frontend: ## Frontend coverage report (text + lcov)
 	cd $(FRONTEND) && $(NPM) run test:coverage
 
-minio-test-up: ## Start the MinIO the integration suite runs against
+services-test-up: ## Start the services the integration suite runs against (MinIO + Postgres)
 	docker compose -f docker-compose.test.yml up -d --wait
 
-minio-test-down: ## Stop that MinIO and drop its data
+services-test-down: ## Stop those services and drop their data
 	docker compose -f docker-compose.test.yml down -v
+
+migrate: $(PY) ## Apply pending Alembic migrations to DARKANGEL_DATABASE_URL
+	cd $(BACKEND) && .venv/bin/python -m alembic upgrade head
 
 snapshot: $(PY) ## Rewrite the pinned OpenAPI snapshot after an intended API change
 	cd $(BACKEND) && .venv/bin/python -m tests.regression.test_openapi_contract
+
+backfill: $(PY) ## Move legacy <sub>/<name> objects to <sub>/<uuid>; ARGS=--dry-run first
+	cd $(BACKEND) && .venv/bin/python -m app.scripts.backfill $(ARGS)
 
 coverage: coverage-backend coverage-frontend ## Coverage for both sides
 
@@ -247,6 +253,9 @@ keycloak-client: ## Create/update the darkangel-spa client in Keycloak realm ea 
 
 minio: ## Create/update the Infra MinIO bucket + user home files live in (INFRA_ENV, .portainer.env)
 	@scripts/provision-minio.sh
+
+postgres: ## Create/update the Infra PostgreSQL database + role the metadata lives in (PGADMIN_URL)
+	@scripts/provision-postgres.sh
 
 # The webhook only redeploys; stopping the stack is `make down`, and creating
 # one is `make up`. deploy.yml prefers the API path (PORTAINER_API_KEY), which

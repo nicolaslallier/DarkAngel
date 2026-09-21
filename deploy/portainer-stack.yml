@@ -7,6 +7,7 @@
 #   IMAGE_OWNER    GHCR namespace, lowercase   (default: nicolaslallier)
 #   IMAGE_TAG      image tag to run            (default: latest)
 #   MINIO_SECRET_KEY  secret of MinIO user darkangel-api (see `make minio`)
+#   POSTGRES_PASSWORD password of the darkangel database role (see `make postgres`)
 #
 # The GitHub Actions deploy workflow pushes new images and then calls this
 # stack's webhook, which re-pulls the tag and recreates the services.
@@ -42,6 +43,11 @@ services:
       # darkangel-files as MinIO user darkangel-api -- both made by `make minio`.
       # MINIO_SECRET_KEY is a stack variable `make up` copies from .portainer.env.
       DARKANGEL_S3_SECRET_KEY: ${MINIO_SECRET_KEY:-}
+      # Metadata lives in the Infra PostgreSQL (`postgres:5432` on infra-net),
+      # database darkangel as role darkangel -- both made by `make postgres`.
+      # POSTGRES_PASSWORD is a stack variable `make up` copies from
+      # .portainer.env, the same way MINIO_SECRET_KEY arrives.
+      DARKANGEL_DATABASE_URL: postgresql+psycopg://darkangel:${POSTGRES_PASSWORD:-}@postgres:5432/darkangel
     expose:
       - "8000"
     # Named for infra-net, which every app on this host shares: a plain

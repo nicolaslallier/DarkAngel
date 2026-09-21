@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { downloadFile } from '@/api/files'
+import { downloadFile, type HomeFile } from '@/api/files'
 import FilesView from '@/views/FilesView.vue'
 
 /**
@@ -14,8 +14,24 @@ import FilesView from '@/views/FilesView.vue'
  * revoke to the next macrotask. This pins that the revoke is still deferred.
  */
 
+const file: HomeFile = {
+  id: '11111111-1111-1111-1111-111111111111',
+  name: 'a.txt',
+  size: 5,
+  content_type: 'text/plain',
+  modified: null,
+}
+
 vi.mock('@/api/files', () => ({
-  listFiles: vi.fn(async () => [{ name: 'a.txt', size: 5, modified: null }]),
+  listFiles: vi.fn(async () => [
+    {
+      id: '11111111-1111-1111-1111-111111111111',
+      name: 'a.txt',
+      size: 5,
+      content_type: 'text/plain',
+      modified: null,
+    },
+  ]),
   uploadFile: vi.fn(async () => {}),
   deleteFile: vi.fn(async () => {}),
   downloadFile: vi.fn(async () => new Blob(['hello'])),
@@ -49,7 +65,7 @@ it('revokes the blob URL only after the click, never in the same tick', async ()
   await wrapper.findAll('tbody button')[0].trigger('click')
   await microtasks()
 
-  expect(downloadFile).toHaveBeenCalledWith('a.txt')
+  expect(downloadFile).toHaveBeenCalledWith(file.id)
   expect(URL.createObjectURL).toHaveBeenCalled()
   expect(click).toHaveBeenCalled()
   // The bug: this was already called by now, and the download never started.

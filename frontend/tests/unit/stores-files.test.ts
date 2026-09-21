@@ -10,7 +10,7 @@ vi.mock('@/api/files', () => ({
   deleteFile: vi.fn(async () => {}),
 }))
 
-const aFile = { name: 'a.txt', size: 5, modified: null }
+const aFile = { id: '11111111-1111-1111-1111-111111111111', name: 'a.txt', size: 5, content_type: 'text/plain', modified: null }
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -44,17 +44,24 @@ it('upload() sends every picked file, then reloads', async () => {
 })
 
 it('remove() deletes, then reloads', async () => {
-  await useFilesStore().remove('a.txt')
+  await useFilesStore().remove('11111111-1111-1111-1111-111111111111')
 
-  expect(deleteFile).toHaveBeenCalledWith('a.txt')
+  expect(deleteFile).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111')
   expect(listFiles).toHaveBeenCalledTimes(1)
+})
+
+it('deletes by id, not by name', async () => {
+  const store = useFilesStore()
+  await store.remove('11111111-1111-1111-1111-111111111111')
+
+  expect(deleteFile).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111')
 })
 
 it('captures the message of a failed action and stops loading', async () => {
   vi.mocked(deleteFile).mockRejectedValue(new Error('DELETE /files/a.txt failed with 404'))
   const store = useFilesStore()
 
-  await store.remove('a.txt')
+  await store.remove('11111111-1111-1111-1111-111111111111')
 
   expect(store.error).toBe('DELETE /files/a.txt failed with 404')
   expect(store.loading).toBe(false)

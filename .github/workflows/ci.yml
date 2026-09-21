@@ -37,10 +37,14 @@ jobs:
           .venv/bin/python -m ruff check .
 
       - name: Test
+        # --cov-config scopes the gate to what a service-less run can reach:
+        # .coveragerc.ci omits the repository and the backfill script, which
+        # only a real PostgreSQL exercises (backend-integration gates those).
         run: |
           .venv/bin/python -m pytest -m "unit or regression" \
             --junitxml=reports/junit.xml \
-            --cov=app --cov-report=term-missing --cov-report=xml \
+            --cov=app --cov-config=.coveragerc.ci \
+            --cov-report=term-missing --cov-report=xml \
             --cov-fail-under="$COVERAGE_MIN"
 
       - name: Summary
@@ -61,18 +65,35 @@ jobs:
           if-no-files-found: warn
 
   backend-integration:
-    name: Backend integration (real MinIO)
+    name: Backend integration (real MinIO + Postgres)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+    services:
+      # A service container works here, unlike MinIO: the postgres image needs
+      # no custom command, so Actions can start it directly.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: darkangel
+          POSTGRES_PASSWORD: darkangel
+          POSTGRES_DB: darkangel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U darkangel -d darkangel"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
     env:
-      # `CI` makes an unreachable MinIO fail the job instead of skipping it.
+      # `CI` makes an unreachable MinIO or Postgres fail the job, not skip it.
       CI: "true"
       DARKANGEL_S3_ENDPOINT: localhost:9000
       DARKANGEL_S3_ACCESS_KEY: minioadmin
       DARKANGEL_S3_SECRET_KEY: minioadmin
       DARKANGEL_S3_SECURE: "false"
+      DARKANGEL_DATABASE_URL: postgresql+psycopg://darkangel:darkangel@localhost:5432/darkangel
     steps:
       - uses: actions/checkout@v4
 
@@ -113,7 +134,8 @@ jobs:
         if: always()
         run: |
           echo "### Backend integration" >> "$GITHUB_STEP_SUMMARY"
-          echo "Ran against MinIO at $DARKANGEL_S3_ENDPOINT." >> "$GITHUB_STEP_SUMMARY"
+          echo "Ran against MinIO at $DARKANGEL_S3_ENDPOINT and Postgres at localhost:5432." \
+            >> "$GITHUB_STEP_SUMMARY"
 
       - name: MinIO logs on failure
         if: failure()

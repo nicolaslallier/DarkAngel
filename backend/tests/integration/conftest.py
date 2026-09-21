@@ -1,9 +1,15 @@
 import os
 import uuid
+from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
+from minio.versioningconfig import ENABLED, VersioningConfig
+from sqlalchemy import text as sa_text
 
 from app.api.routes import files
+from app.core import db as db_module
 from app.core.config import get_settings
 
 # Matches docker-compose.test.yml and the CI step. Exporting any of these before
@@ -73,12 +79,21 @@ def minio_bucket():
             pytest.skip(reason)
 
         client.make_bucket(settings.s3_bucket)
+        # Production enables versioning (provision-minio.sh); the throwaway
+        # bucket must match, or put_object returns no version_id and the
+        # file_versions rows would all record an empty string.
+        client.set_bucket_versioning(settings.s3_bucket, VersioningConfig(ENABLED))
         try:
             yield settings.s3_bucket
         finally:
             # Teardown runs even when a test failed mid-upload, so nothing leaks.
-            for obj in client.list_objects(settings.s3_bucket, recursive=True):
-                client.remove_object(settings.s3_bucket, obj.object_name)
+            # Versioning is enabled above, so a plain listing only shows the
+            # current version of each key -- remove_bucket needs every version
+            # and delete marker gone, or it refuses with BucketNotEmpty.
+            for obj in client.list_objects(
+                settings.s3_bucket, recursive=True, include_version=True
+            ):
+                client.remove_object(settings.s3_bucket, obj.object_name, version_id=obj.version_id)
             client.remove_bucket(settings.s3_bucket)
     finally:
         restore()
@@ -93,3 +108,85 @@ def store():
         "integration tests run against real MinIO; the FakeMinio `store` "
         "fixture is unit/regression only"
     )
+
+
+@pytest.fixture
+def repo():
+    """Shadow the shared `repo` fixture for the same reason as `store`: this
+    suite exists to exercise real SQL, and the fake would quietly defeat it."""
+    pytest.fail(
+        "integration tests run against real PostgreSQL; the FakeFileRepository "
+        "`repo` fixture is unit/regression only"
+    )
+
+
+# --- PostgreSQL -----------------------------------------------------------
+# Same shape as minio_bucket above: default the environment, clear the caches
+# that read it, and fail rather than skip when CI is the one running.
+
+PG_DEFAULTS = {
+    "DARKANGEL_DATABASE_URL": "postgresql+psycopg://darkangel:darkangel@localhost:5432/darkangel",
+}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def pg_database():
+    """Point the app at the local test Postgres and migrate it to head.
+
+    Ordering against `minio_bucket` does not matter: both fixtures write to
+    os.environ, which is the single source of truth, and both clear
+    `get_settings` afterwards. What *does* matter is clearing the two db
+    caches -- an engine built before DARKANGEL_DATABASE_URL was set would
+    point at the unreachable production host for the rest of the session.
+    """
+    prior = {key: os.environ.get(key) for key in PG_DEFAULTS}
+
+    def restore():
+        for key, value in prior.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        get_settings.cache_clear()
+        db_module.engine.cache_clear()
+        db_module.session_factory.cache_clear()
+
+    try:
+        for key, value in PG_DEFAULTS.items():
+            os.environ.setdefault(key, value)
+
+        get_settings.cache_clear()
+        db_module.engine.cache_clear()
+        db_module.session_factory.cache_clear()
+
+        url = get_settings().database_url
+        try:
+            with db_module.engine().connect() as connection:
+                connection.execute(sa_text("SELECT 1"))
+        except Exception as e:
+            reason = f"PostgreSQL unreachable at {url.rsplit('@', 1)[-1]}: {e}"
+            if os.environ.get("CI") == "true":
+                pytest.fail(reason, pytrace=False)
+            pytest.skip(reason)
+
+        alembic_config = Config(str(Path(__file__).parents[2] / "alembic.ini"))
+        command.upgrade(alembic_config, "head")
+
+        yield url
+    finally:
+        restore()
+
+
+@pytest.fixture
+def db(pg_database):
+    """A session per test, with every table emptied first.
+
+    TRUNCATE, not DELETE: audit_log carries a BEFORE DELETE trigger that makes
+    it append-only, and TRUNCATE does not fire row triggers.
+    """
+    with db_module.session_factory()() as session:
+        session.execute(
+            sa_text("TRUNCATE audit_log, file_versions, files, folders RESTART IDENTITY CASCADE")
+        )
+        session.commit()
+        yield session

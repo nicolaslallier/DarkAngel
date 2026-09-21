@@ -1,5 +1,7 @@
 import time
+import uuid
 from collections import Counter
+from datetime import UTC, datetime
 from textwrap import shorten
 from types import SimpleNamespace
 
@@ -10,6 +12,9 @@ from minio.error import S3Error
 
 from app.api.routes import files
 from app.core import auth
+from app.main import app
+from app.models.files import File
+from app.repositories.files import QuotaExceeded, file_repository
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 ISSUER = "https://keycloak.famillelallier.net/realms/ea"
@@ -100,15 +105,10 @@ class FakeMinio:
     def __init__(self):
         self.objects: dict[str, tuple[bytes, str]] = {}
 
-    def put_object(self, _bucket, key, data, length, part_size, content_type):
+    def put_object(self, _bucket, key, data, length, content_type, part_size=None):
         self.objects[key] = (data.read(), content_type)
-
-    def list_objects(self, _bucket, prefix):
-        return [
-            SimpleNamespace(object_name=k, size=len(v[0]), last_modified=None)
-            for k, v in self.objects.items()
-            if k.startswith(prefix)
-        ]
+        # The real client returns an ObjectWriteResult; only version_id is read.
+        return SimpleNamespace(version_id=f"v-{len(self.objects)}")
 
     def get_object(self, _bucket, key):
         if key not in self.objects:
@@ -132,3 +132,101 @@ def store(monkeypatch):
     fake = FakeMinio()
     monkeypatch.setattr(files, "minio_client", lambda: fake)
     return fake
+
+
+class FakeFileRepository:
+    """The slice of FileRepository the routes use, over a list.
+
+    It stores real `File` model objects: unattached to a session they are just
+    data holders, so the fake cannot drift from the real column names.
+    """
+
+    def __init__(self):
+        self.rows: list[File] = []
+        self.versions: dict[uuid.UUID, int] = {}
+        self.audits: list[tuple] = []
+        self.swept: list[str] = []
+
+    def _live(self, owner_sub):
+        return [
+            r
+            for r in self.rows
+            if r.owner_sub == owner_sub and r.deleted_at is None and r.status == "ready"
+        ]
+
+    def list(self, owner_sub, *, limit=100, offset=0):
+        return self._live(owner_sub)[offset : offset + limit]
+
+    def get(self, owner_sub, file_id):
+        return next((r for r in self._live(owner_sub) if r.id == file_id), None)
+
+    def find_by_name(self, owner_sub, name, folder_id):
+        return next(
+            (
+                r
+                for r in self._live(owner_sub)
+                if r.name.lower() == name.lower() and r.folder_id == folder_id
+            ),
+            None,
+        )
+
+    def used_bytes(self, owner_sub):
+        # No deleted_at filter, matching FileRepository.used_bytes: BR-9 says
+        # trashed files keep counting until purged.
+        return sum(r.size_bytes for r in self.rows if r.owner_sub == owner_sub)
+
+    def reserve(self, owner_sub, *, name, folder_id, size_bytes, content_type, quota_bytes):
+        used = self.used_bytes(owner_sub)
+        if used + size_bytes > quota_bytes:
+            raise QuotaExceeded(used, quota_bytes, size_bytes)
+        file_id = uuid.uuid4()
+        row = File(
+            id=file_id,
+            owner_sub=owner_sub,
+            folder_id=folder_id,
+            name=name,
+            content_type=content_type,
+            size_bytes=size_bytes,
+            object_key=f"{owner_sub}/{file_id}",
+            status="pending",
+            tags=[],
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        self.rows.append(row)
+        return row
+
+    def finalize(self, file, *, s3_version_id, actor_sub):
+        file.status = "ready"
+        file.current_version_id = uuid.uuid4()
+        self.versions[file.id] = 1
+        return file
+
+    def add_version(self, file, *, s3_version_id, size_bytes, content_type, actor_sub):
+        self.versions[file.id] = self.versions.get(file.id, 1) + 1
+        file.size_bytes = size_bytes
+        file.content_type = content_type
+        file.updated_at = datetime.now(UTC)
+        return file
+
+    def abandon(self, file):
+        self.rows.remove(file)
+
+    def soft_delete(self, file):
+        file.deleted_at = datetime.now(UTC)
+
+    def sweep_pending(self, older_than_seconds=3600):
+        return self.swept
+
+    def audit(self, actor_sub, action, target_type, target_id, detail=None):
+        self.audits.append((actor_sub, action, target_type, target_id, detail))
+
+
+@pytest.fixture
+def repo():
+    """Swap the repository for the in-memory fake. Explicit, never autouse:
+    the integration suite must keep talking to the real database."""
+    fake = FakeFileRepository()
+    app.dependency_overrides[file_repository] = lambda: fake
+    yield fake
+    app.dependency_overrides.pop(file_repository, None)
