@@ -100,6 +100,9 @@ jobs:
           # would blank it and the Files page would stop working. The same
           # value `make minio` gave the darkangel-api MinIO user.
           MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+          # Same for the password `make postgres` gave the darkangel role:
+          # left out, the backend's `alembic upgrade head` fails on startup.
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           # Optional overrides, all repository variables.
           PORTAINER_URL: ${{ vars.PORTAINER_URL }}
           PORTAINER_INSECURE: ${{ vars.PORTAINER_INSECURE }}
