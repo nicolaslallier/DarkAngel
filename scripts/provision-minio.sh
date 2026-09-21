@@ -50,13 +50,16 @@ mc alias set infra http://minio:9000 "$root_user" "$root_pass" >/dev/null
 mc mb --ignore-existing infra/darkangel-files
 mc version enable infra/darkangel-files >/dev/null
 
+# GetBucketLocation: minio-py asks for the bucket region before its first
+# call on it, so without this every request is AccessDenied. The tests run as
+# root, which no policy binds, so only a real deploy shows it.
 cat >"$MC_CONFIG_DIR/policy.json" <<JSON
 {
   "Version": "2012-10-17",
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
+      "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
       "Resource": ["arn:aws:s3:::darkangel-files"]
     },
     {
