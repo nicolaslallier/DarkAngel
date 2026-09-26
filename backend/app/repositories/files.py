@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import Depends
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.db import Db
@@ -223,6 +224,18 @@ class FileRepository:
     def soft_delete(self, file: File) -> None:
         file.deleted_at = datetime.now(UTC)
         self.db.commit()
+
+    def update(self, file: File, **changes: Any) -> File:
+        """Rename / move / describe / retag. No bytes move: the object key is
+        the id, not the name or the folder."""
+        for field, value in changes.items():
+            setattr(file, field, value)
+        try:
+            self.db.commit()
+        except IntegrityError as e:
+            self.db.rollback()
+            raise NameTaken from e
+        return file
 
     def sweep_pending(self, older_than_seconds: int = 3600) -> list[str]:
         """Drop reservations whose upload never finished, returning the object

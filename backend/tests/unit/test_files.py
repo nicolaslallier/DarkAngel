@@ -1,9 +1,11 @@
 import uuid
 from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from minio.error import S3Error
 
+from app.api.routes import files as files_routes
 from app.core.config import get_settings
 from app.main import app
 from tests.conftest import token
@@ -480,3 +482,179 @@ def test_delete_needs_a_token(repo, store):
     created = upload().json()
 
     assert client.delete(f"/api/files/{created['id']}").status_code == 401
+
+
+def patch(file_id, body, sub="user-1"):
+    return client.patch(f"/api/files/{file_id}", headers=auth(sub), json=body)
+
+
+def test_rename_is_audited_and_touches_no_object(repo, monkeypatch):
+    monkeypatch.setattr(files_routes, "minio_client", lambda: pytest.fail("PATCH touched MinIO"))
+    row = seed(repo, name="a.txt")
+
+    response = patch(row.id, {"name": " b.txt "})
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "b.txt"
+    assert repo.audits[-1][1:] == ("rename", "file", row.id, {"before": "a.txt", "after": "b.txt"})
+
+
+def test_rename_validates_the_name(repo):
+    row = seed(repo)
+
+    assert patch(row.id, {"name": ".."}).status_code == 422
+
+
+def test_rename_into_a_clash_in_the_same_folder_is_a_409(repo):
+    seed(repo, name="a.txt")
+    row = seed(repo, name="b.txt")
+
+    response = patch(row.id, {"name": "A.TXT"})
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "A file named A.TXT already exists here"
+    assert row.name == "b.txt"
+
+
+def test_a_case_only_rename_is_not_a_clash_with_itself(repo):
+    row = seed(repo, name="notes.txt")
+
+    assert patch(row.id, {"name": "Notes.txt"}).json()["name"] == "Notes.txt"
+
+
+def test_the_same_name_is_fine_in_another_folder(repo):
+    folder = repo.folders.create("user-1", name="A", parent_id=None)
+    seed(repo, name="a.txt")
+    row = seed(repo, name="a.txt", folder_id=folder.id)
+
+    assert patch(row.id, {"folder_id": None}).status_code == 409
+    assert patch(row.id, {"name": "b.txt", "folder_id": None}).status_code == 200
+
+
+def test_an_empty_description_is_stored_as_null(repo):
+    row = seed(repo, description="old")
+
+    response = patch(row.id, {"description": ""})
+
+    assert response.json()["description"] is None
+    assert repo.audits[-1][1] == "retag"
+    assert repo.audits[-1][4] == {
+        "before": {"description": "old", "tags": []},
+        "after": {"description": None, "tags": []},
+    }
+
+
+def test_an_overlong_description_is_a_422(repo):
+    row = seed(repo)
+
+    assert patch(row.id, {"description": "x" * 2001}).status_code == 422
+
+
+def test_tags_are_trimmed_lowercased_and_deduplicated_in_order(repo):
+    row = seed(repo)
+
+    response = patch(row.id, {"tags": [" Tax ", "2026", "tax", "", "  "]})
+
+    assert response.json()["tags"] == ["tax", "2026"]
+
+
+def test_too_many_or_too_long_tags_are_a_422(repo):
+    row = seed(repo)
+
+    assert patch(row.id, {"tags": [f"t{i}" for i in range(21)]}).status_code == 422
+    assert patch(row.id, {"tags": ["x" * 51]}).status_code == 422
+    assert patch(row.id, {"tags": ["x" * 50]}).status_code == 200
+
+
+def test_folder_id_omitted_is_unchanged_and_null_is_the_root(repo):
+    folder = repo.folders.create("user-1", name="A", parent_id=None)
+    row = seed(repo)
+
+    moved = patch(row.id, {"folder_id": str(folder.id)})
+    assert moved.json()["folder_id"] == str(folder.id)
+    assert repo.audits[-1][1:] == (
+        "move",
+        "file",
+        row.id,
+        {"before": None, "after": str(folder.id)},
+    )
+
+    assert patch(row.id, {"name": "b.txt"}).json()["folder_id"] == str(folder.id)
+    assert patch(row.id, {"folder_id": None}).json()["folder_id"] is None
+
+
+def test_moving_into_an_unknown_folder_is_a_404(repo):
+    row = seed(repo)
+
+    assert patch(row.id, {"folder_id": str(uuid.uuid4())}).status_code == 404
+    assert row.folder_id is None
+
+
+def test_one_patch_writes_one_audit_row_per_action(repo):
+    folder = repo.folders.create("user-1", name="A", parent_id=None)
+    row = seed(repo)
+
+    patch(row.id, {"name": "b.txt", "folder_id": str(folder.id), "tags": ["x"]})
+
+    assert [a[1] for a in repo.audits] == ["rename", "move", "retag"]
+
+
+def test_an_empty_patch_is_200_and_audits_nothing(repo):
+    row = seed(repo)
+
+    assert patch(row.id, {}).status_code == 200
+    assert patch(row.id, {"name": "a.txt", "description": None, "tags": []}).status_code == 200
+    assert repo.audits == []
+
+
+def test_patch_of_an_unknown_or_foreign_file_is_a_404(repo):
+    row = seed(repo, sub="user-1")
+
+    assert patch(row.id, {"name": "x.txt"}, sub="user-2").status_code == 404
+    assert patch(uuid.uuid4(), {"name": "x.txt"}).status_code == 404
+    assert row.name == "a.txt"
+
+
+def test_patch_needs_a_token(repo):
+    row = seed(repo)
+
+    assert client.patch(f"/api/files/{row.id}", json={"name": "b.txt"}).status_code == 401
+
+
+def upload_into(folder_id, name="a.txt", data=b"hello", sub="user-1"):
+    return client.post(
+        "/api/files",
+        headers=auth(sub),
+        data={"folder_id": str(folder_id)},
+        files={"file": (name, data, "text/plain")},
+    )
+
+
+def test_upload_into_a_folder(repo, store):
+    folder = repo.folders.create("user-1", name="A", parent_id=None)
+
+    response = upload_into(folder.id)
+
+    assert response.status_code == 201
+    assert response.json()["folder_id"] == str(folder.id)
+
+
+def test_upload_into_an_unknown_or_foreign_folder_is_a_404(repo, store):
+    theirs = repo.folders.create("user-2", name="A", parent_id=None)
+
+    assert upload_into(theirs.id).status_code == 404
+    assert upload_into(uuid.uuid4()).status_code == 404
+    assert repo.rows == []
+    assert store.objects == {}
+
+
+def test_br2_versions_per_folder(repo, store):
+    folder = repo.folders.create("user-1", name="A", parent_id=None)
+    at_root = upload(name="notes.txt").json()
+
+    first = upload_into(folder.id, name="notes.txt").json()
+    second = upload_into(folder.id, name="notes.txt", data=b"two")
+
+    assert first["id"] != at_root["id"]
+    assert second.status_code == 200
+    assert second.json()["id"] == first["id"]

@@ -253,6 +253,18 @@ class FakeFileRepository:
     def soft_delete(self, file):
         file.deleted_at = datetime.now(UTC)
 
+    def update(self, file, **changes):
+        # uq_files_folder_name: case-insensitive, live ready rows, excluding self.
+        name = changes.get("name", file.name)
+        folder_id = changes.get("folder_id", file.folder_id)
+        for r in self._live(file.owner_sub):
+            if r is not file and r.folder_id == folder_id and r.name.lower() == name.lower():
+                raise NameTaken
+        for field, value in changes.items():
+            setattr(file, field, value)
+        file.updated_at = datetime.now(UTC)
+        return file
+
     def sweep_pending(self, older_than_seconds=3600):
         return self.swept
 

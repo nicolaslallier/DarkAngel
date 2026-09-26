@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import text
 
 from app.models.files import AuditLog, File
-from app.repositories.files import FileRepository, QuotaExceeded
+from app.repositories.files import FileRepository, NameTaken, QuotaExceeded
 from app.repositories.folders import FolderRepository
 
 QUOTA = 1000
@@ -242,3 +242,31 @@ def test_sort_is_case_insensitive_and_paging_is_stable_on_ties(repository, db):
 
     assert names(by_name) == ["A.txt", "b.txt", "c.txt", "d.txt"]
     assert len({row.id for row in [*first, *second]}) == 4
+
+
+def test_update_renames_moves_describes_and_retags(repository, db):
+    folder = FolderRepository(db).create("user-1", name="A", parent_id=None)
+    row = ready(repository, db, "a.txt")
+
+    repository.update(row, name="b.txt", folder_id=folder.id, description="d", tags=["x"])
+
+    fresh = db.execute(text("SELECT name, folder_id, description, tags FROM files")).one()
+    assert tuple(fresh) == ("b.txt", folder.id, "d", ["x"])
+
+
+def test_update_into_a_clash_raises_name_taken_and_keeps_the_row(repository, db):
+    ready(repository, db, "a.txt")
+    row = ready(repository, db, "b.txt")
+
+    with pytest.raises(NameTaken):
+        repository.update(row, name="A.TXT")
+
+    assert repository.get("user-1", row.id).name == "b.txt"
+
+
+def test_a_case_only_file_rename_is_not_a_clash(repository, db):
+    row = ready(repository, db, "notes.txt")
+
+    repository.update(row, name="Notes.txt")
+
+    assert repository.get("user-1", row.id).name == "Notes.txt"
