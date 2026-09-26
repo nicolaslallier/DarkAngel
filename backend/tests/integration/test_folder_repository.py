@@ -151,3 +151,20 @@ def test_folder_queries_never_cross_owners(folders, files):
 
 def test_get_of_an_unknown_id_is_none(folders):
     assert folders.get("user-1", uuid.uuid4()) is None
+
+
+def test_a_forced_cycle_still_terminates(folders, files, db):
+    """Concurrent opposite moves are a check-then-write race that can leave a
+    parent_id cycle on disk. Readers must still terminate instead of hanging
+    the recursive CTE forever. A short statement_timeout keeps a regression
+    here failing fast instead of hanging the whole suite."""
+    a = folders.create("user-1", name="A", parent_id=None)
+    b = folders.create("user-1", name="B", parent_id=a.id)
+    ready_file(files, "one.txt", b.id)
+    db.execute(text("UPDATE folders SET parent_id = :b WHERE id = :a"), {"b": b.id, "a": a.id})
+    db.commit()
+    db.execute(text("SET statement_timeout = '5000'"))
+
+    assert folders.is_cycle("user-1", a.id, a.id) is True
+    assert folders.subtree_counts("user-1", a.id) == (1, 1)
+    assert folders.soft_delete_subtree("user-1", a.id) == (1, 1)

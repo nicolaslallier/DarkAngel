@@ -83,7 +83,10 @@ class FolderRepository:
             )
             .cte("subtree", recursive=True)
         )
-        tree = tree.union_all(
+        # union (not union_all): a concurrent pair of opposite moves can leave a
+        # cycle on disk (check-then-write race). union dedupes by id, so a
+        # cycle stops producing new rows and the walk still terminates.
+        tree = tree.union(
             select(Folder.id)
             .join(tree, Folder.parent_id == tree.c.id)
             .where(Folder.owner_sub == owner_sub, Folder.deleted_at.is_(None))
