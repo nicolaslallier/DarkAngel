@@ -38,6 +38,9 @@ it('lists what the API returns, with a human-readable size', async () => {
       size: 2048,
       content_type: 'text/plain',
       modified: null,
+      folder_id: null,
+      description: null,
+      tags: [],
     },
   ])
 
@@ -76,6 +79,9 @@ it('asks before deleting, and deletes when confirmed', async () => {
       size: 5,
       content_type: 'text/plain',
       modified: null,
+      folder_id: null,
+      description: null,
+      tags: [],
     },
   ])
   const wrapper = render()
@@ -96,6 +102,9 @@ it('does not delete when the confirmation is dismissed', async () => {
       size: 5,
       content_type: 'text/plain',
       modified: null,
+      folder_id: null,
+      description: null,
+      tags: [],
     },
   ])
   vi.stubGlobal('confirm', vi.fn(() => false))

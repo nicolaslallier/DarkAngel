@@ -20,6 +20,9 @@ const file: HomeFile = {
   size: 5,
   content_type: 'text/plain',
   modified: null,
+  folder_id: null,
+  description: null,
+  tags: [],
 }
 
 vi.mock('@/api/files', () => ({
@@ -30,6 +33,9 @@ vi.mock('@/api/files', () => ({
       size: 5,
       content_type: 'text/plain',
       modified: null,
+      folder_id: null,
+      description: null,
+      tags: [],
     },
   ]),
   uploadFile: vi.fn(async () => {}),

@@ -24,7 +24,7 @@ export const useFilesStore = defineStore('files', () => {
   }
 
   const load = () => run(async () => {})
-  const upload = (picked: File[]) => run(() => Promise.all(picked.map(uploadFile)))
+  const upload = (picked: File[]) => run(() => Promise.all(picked.map((file) => uploadFile(file))))
   const remove = (id: string) => run(() => deleteFile(id))
 
   return { files, error, loading, load, upload, remove }

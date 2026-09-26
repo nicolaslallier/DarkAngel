@@ -10,7 +10,16 @@ vi.mock('@/api/files', () => ({
   deleteFile: vi.fn(async () => {}),
 }))
 
-const aFile = { id: '11111111-1111-1111-1111-111111111111', name: 'a.txt', size: 5, content_type: 'text/plain', modified: null }
+const aFile = {
+  id: '11111111-1111-1111-1111-111111111111',
+  name: 'a.txt',
+  size: 5,
+  content_type: 'text/plain',
+  modified: null,
+  folder_id: null,
+  description: null,
+  tags: [],
+}
 
 beforeEach(() => {
   setActivePinia(createPinia())
