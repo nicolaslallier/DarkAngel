@@ -30,6 +30,11 @@ Covers, for user-2 against user-1's file, at the route layer:
 - content by id is a 404
 - delete by id is a 404, and the file is still listed for user-1 afterwards
 - a same-name upload creates a separate file rather than versioning it
+- folders: list, rename/move, delete (plain and recursive), and listing files
+  in a foreign folder are all 404 or empty, and nothing changes
+- a foreign folder cannot be a parent, a move target or an upload target
+- PATCH on a foreign file is a 404 and changes nothing
+- search (q and tag) never returns a foreign file
 """
 
 import uuid
@@ -91,3 +96,71 @@ def test_a_same_name_upload_by_user_two_is_a_separate_file(repo, store):
     second_id = second.json()["id"]
     assert second_id != first["id"]
     assert {r.id for r in repo.rows} == {uuid.UUID(first["id"]), uuid.UUID(second_id)}
+
+
+def folder(name="Invoices", parent_id=None, sub="user-1"):
+    return client.post(
+        "/api/folders", headers=auth(sub), json={"name": name, "parent_id": parent_id}
+    )
+
+
+def test_user_two_cannot_see_or_touch_user_ones_folder(repo, store):
+    created = folder().json()
+    folder_id = created["id"]
+
+    assert client.get("/api/folders", headers=auth("user-2")).json() == []
+    rename = client.patch(f"/api/folders/{folder_id}", headers=auth("user-2"), json={"name": "x"})
+    assert rename.status_code == 404
+    for query in ("", "?recursive=true"):
+        response = client.delete(f"/api/folders/{folder_id}{query}", headers=auth("user-2"))
+        assert response.status_code == 404
+    listing = client.get("/api/files", headers=auth("user-2"), params={"folder_id": folder_id})
+    assert listing.status_code == 404
+    assert client.get("/api/folders", headers=auth("user-1")).json() == [created]
+
+
+def test_user_two_cannot_use_user_ones_folder_as_a_target(repo, store):
+    target = folder().json()["id"]
+    own_folder = folder(name="Mine", sub="user-2").json()["id"]
+    own_file = upload(sub="user-2").json()["id"]
+
+    assert folder(name="x", parent_id=target, sub="user-2").status_code == 404
+    move_folder = client.patch(
+        f"/api/folders/{own_folder}", headers=auth("user-2"), json={"parent_id": target}
+    )
+    assert move_folder.status_code == 404
+    move_file = client.patch(
+        f"/api/files/{own_file}", headers=auth("user-2"), json={"folder_id": target}
+    )
+    assert move_file.status_code == 404
+    into = client.post(
+        "/api/files",
+        headers=auth("user-2"),
+        data={"folder_id": target},
+        files={"file": ("b.txt", b"x", "text/plain")},
+    )
+    assert into.status_code == 404
+    assert {r.folder_id for r in repo.rows} == {None}
+    assert [f.parent_id for f in repo.folders.rows] == [None, None]
+
+
+def test_user_two_cannot_patch_user_ones_file(repo, store):
+    created = upload(sub="user-1").json()
+
+    response = client.patch(
+        f"/api/files/{created['id']}",
+        headers=auth("user-2"),
+        json={"name": "stolen.txt", "tags": ["x"], "folder_id": None},
+    )
+
+    assert response.status_code == 404
+    assert client.get(f"/api/files/{created['id']}", headers=auth()).json() == created
+    assert [a[1] for a in repo.audits] == ["upload"]
+
+
+def test_search_never_returns_user_ones_files(repo, store):
+    created = upload(name="tax.txt", sub="user-1").json()
+    client.patch(f"/api/files/{created['id']}", headers=auth(), json={"tags": ["tax"]})
+
+    for params in ({"q": "tax"}, {"tag": "tax"}):
+        assert client.get("/api/files", headers=auth("user-2"), params=params).json() == []
