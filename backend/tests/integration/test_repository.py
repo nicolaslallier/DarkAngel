@@ -7,7 +7,8 @@ import pytest
 from sqlalchemy import text
 
 from app.models.files import AuditLog, File
-from app.repositories.files import FileRepository, QuotaExceeded
+from app.repositories.files import FileRepository, NameTaken, QuotaExceeded
+from app.repositories.folders import FolderRepository
 
 QUOTA = 1000
 
@@ -168,3 +169,104 @@ def test_audit_writes_one_row(repository, db):
     entry = db.query(AuditLog).one()
     assert (entry.actor_sub, entry.action, entry.target_id) == ("user-1", "upload", target)
     assert entry.detail == {"name": "a.txt"}
+
+
+def ready(repository, db, name, owner="user-1", folder_id=None, description=None, tags=()):
+    row = repository.reserve(
+        owner,
+        name=name,
+        folder_id=folder_id,
+        size_bytes=len(name),
+        content_type="text/plain",
+        quota_bytes=10**9,
+    )
+    repository.finalize(row, s3_version_id="v", actor_sub=owner)
+    row.description = description
+    row.tags = list(tags)
+    db.commit()
+    return row
+
+
+def names(rows):
+    return [row.name for row in rows]
+
+
+def test_list_is_scoped_to_one_folder(repository, db):
+    folder = FolderRepository(db).create("user-1", name="A", parent_id=None)
+    ready(repository, db, "root.txt")
+    ready(repository, db, "inside.txt", folder_id=folder.id)
+
+    assert names(repository.list("user-1")) == ["root.txt"]
+    assert names(repository.list("user-1", folder_id=folder.id)) == ["inside.txt"]
+
+
+def test_search_matches_name_description_and_tags_across_folders(repository, db):
+    folder = FolderRepository(db).create("user-1", name="A", parent_id=None)
+    ready(repository, db, "Tax 2026.pdf")
+    ready(repository, db, "scan.pdf", folder_id=folder.id, description="Tax return")
+    ready(repository, db, "r.pdf", tags=["tax"])
+    ready(repository, db, "other.txt")
+    ready(repository, db, "tax.txt", owner="user-2")
+
+    found = repository.list("user-1", q="TAX")
+
+    assert sorted(names(found)) == ["Tax 2026.pdf", "r.pdf", "scan.pdf"]
+
+
+def test_search_treats_like_wildcards_literally(repository, db):
+    for name in ("100%.txt", "1000.txt", "a_b.txt", "axb.txt"):
+        ready(repository, db, name)
+
+    assert names(repository.list("user-1", q="100%")) == ["100%.txt"]
+    assert names(repository.list("user-1", q="a_b")) == ["a_b.txt"]
+
+
+def test_tag_filter_is_containment_and_combines_with_q(repository, db):
+    ready(repository, db, "a.txt", tags=["tax", "2026"])
+    ready(repository, db, "b.txt", tags=["taxes"])
+    ready(repository, db, "c.txt", tags=["tax"], description="receipt")
+
+    assert sorted(names(repository.list("user-1", tag="tax"))) == ["a.txt", "c.txt"]
+    assert names(repository.list("user-1", tag="tax", q="receipt")) == ["c.txt"]
+
+
+def test_sort_is_case_insensitive_and_paging_is_stable_on_ties(repository, db):
+    for name in ("b.txt", "A.txt", "c.txt", "d.txt"):
+        ready(repository, db, name)
+    db.execute(text("UPDATE files SET updated_at = '2026-01-01T00:00:00+00:00'"))
+    db.commit()
+
+    by_name = repository.list("user-1", sort="name", order="asc")
+    first = repository.list("user-1", limit=2, offset=0)
+    second = repository.list("user-1", limit=2, offset=2)
+
+    assert names(by_name) == ["A.txt", "b.txt", "c.txt", "d.txt"]
+    assert len({row.id for row in [*first, *second]}) == 4
+
+
+def test_update_renames_moves_describes_and_retags(repository, db):
+    folder = FolderRepository(db).create("user-1", name="A", parent_id=None)
+    row = ready(repository, db, "a.txt")
+
+    repository.update(row, name="b.txt", folder_id=folder.id, description="d", tags=["x"])
+
+    fresh = db.execute(text("SELECT name, folder_id, description, tags FROM files")).one()
+    assert tuple(fresh) == ("b.txt", folder.id, "d", ["x"])
+
+
+def test_update_into_a_clash_raises_name_taken_and_keeps_the_row(repository, db):
+    ready(repository, db, "a.txt")
+    row = ready(repository, db, "b.txt")
+
+    with pytest.raises(NameTaken):
+        repository.update(row, name="A.TXT")
+
+    assert repository.get("user-1", row.id).name == "b.txt"
+
+
+def test_a_case_only_file_rename_is_not_a_clash(repository, db):
+    row = ready(repository, db, "notes.txt")
+
+    repository.update(row, name="Notes.txt")
+
+    assert repository.get("user-1", row.id).name == "Notes.txt"

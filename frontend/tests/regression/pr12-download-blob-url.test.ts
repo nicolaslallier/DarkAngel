@@ -1,9 +1,17 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { downloadFile, type HomeFile } from '@/api/files'
 import FilesView from '@/views/FilesView.vue'
+
+vi.mock('@/auth', () => ({ accessToken: vi.fn(async () => null) }))
+// The store's refresh() also loads the folder tree.
+vi.mock('@/api/folders', () => ({
+  listFolders: vi.fn(async () => []),
+  deleteFolder: vi.fn(async () => {}),
+}))
 
 /**
  * Regression — PR #12, MinIO home files.
@@ -20,6 +28,9 @@ const file: HomeFile = {
   size: 5,
   content_type: 'text/plain',
   modified: null,
+  folder_id: null,
+  description: null,
+  tags: [],
 }
 
 vi.mock('@/api/files', () => ({
@@ -30,11 +41,15 @@ vi.mock('@/api/files', () => ({
       size: 5,
       content_type: 'text/plain',
       modified: null,
+      folder_id: null,
+      description: null,
+      tags: [],
     },
   ]),
   uploadFile: vi.fn(async () => {}),
   deleteFile: vi.fn(async () => {}),
   downloadFile: vi.fn(async () => new Blob(['hello'])),
+  updateFile: vi.fn(),
 }))
 
 // jsdom implements neither, and a real <a download> click would try to navigate.
@@ -57,12 +72,21 @@ const microtasks = async () => {
   for (let i = 0; i < 10; i++) await Promise.resolve()
 }
 
+async function mountFiles() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/files', component: FilesView }],
+  })
+  await router.push('/files')
+  return mount(FilesView, { global: { plugins: [createPinia(), router] } })
+}
+
 it('revokes the blob URL only after the click, never in the same tick', async () => {
-  const wrapper = mount(FilesView, { global: { plugins: [createPinia()] } })
+  const wrapper = await mountFiles()
   await flushPromises()
 
   vi.useFakeTimers()
-  await wrapper.findAll('tbody button')[0].trigger('click')
+  await wrapper.findAll('tbody button').find((b) => b.text() === 'Download')!.trigger('click')
   await microtasks()
 
   expect(downloadFile).toHaveBeenCalledWith(file.id)
@@ -78,10 +102,10 @@ it('revokes the blob URL only after the click, never in the same tick', async ()
 
 it('reports a failed download in the store error instead of throwing', async () => {
   vi.mocked(downloadFile).mockRejectedValue(new Error('GET /files/a.txt failed with 404'))
-  const wrapper = mount(FilesView, { global: { plugins: [createPinia()] } })
+  const wrapper = await mountFiles()
   await flushPromises()
 
-  await wrapper.findAll('tbody button')[0].trigger('click')
+  await wrapper.findAll('tbody button').find((b) => b.text() === 'Download')!.trigger('click')
   await flushPromises()
 
   expect(wrapper.get('[role="alert"]').text()).toBe('GET /files/a.txt failed with 404')

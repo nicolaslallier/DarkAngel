@@ -4,19 +4,20 @@ from collections.abc import Iterator
 from contextlib import suppress
 from datetime import datetime
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from minio import Minio
 from minio.error import S3Error
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.auth import Claims
 from app.core.config import get_settings
-from app.models.files import File
-from app.repositories.files import FileRepo, QuotaExceeded
+from app.models.files import File, Folder
+from app.repositories.files import FileRepo, NameTaken, Order, QuotaExceeded, Sort
+from app.repositories.folders import FolderRepo, FolderRepository
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -27,6 +28,9 @@ class FileInfo(BaseModel):
     size: int
     content_type: str
     modified: datetime | None
+    folder_id: uuid.UUID | None
+    description: str | None
+    tags: list[str]
 
     @classmethod
     def of(cls, row: File) -> "FileInfo":
@@ -36,6 +40,9 @@ class FileInfo(BaseModel):
             size=row.size_bytes,
             content_type=row.content_type,
             modified=row.updated_at,
+            folder_id=row.folder_id,
+            description=row.description,
+            tags=row.tags,
         )
 
 
@@ -66,14 +73,31 @@ def _sweep(repo: FileRepo) -> None:
 def list_files(
     claims: Claims,
     repo: FileRepo,
+    folders: FolderRepo,
+    folder_id: uuid.UUID | None = None,
+    q: str | None = Query(None, max_length=200),
+    tag: str | None = Query(None, max_length=50),
+    sort: Sort = "updated_at",
+    order: Order = "desc",
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> list[FileInfo]:
+    """Without q/tag: one folder (absent = root). With either: every live file
+    of the caller's, wherever it is -- the SPA shows a Location column then."""
+    sub = claims["sub"]
     # There is no scheduler in this stack, so the sweep rides along here. It is
     # a single indexed DELETE over a table that is almost always empty.
     # ponytail: inline sweep; move to a cron if list latency ever suffers
     _sweep(repo)
-    return [FileInfo.of(row) for row in repo.list(claims["sub"], limit=limit, offset=offset)]
+    # A cleared search box sends `?q=`: that is "no search", not an error.
+    q = (q or "").strip() or None
+    tag = (tag or "").strip().lower() or None
+    if q is None and tag is None and folder_id is not None:
+        _live_folder(folders, sub, folder_id)
+    rows = repo.list(
+        sub, folder_id=folder_id, q=q, tag=tag, sort=sort, order=order, limit=limit, offset=offset
+    )
+    return [FileInfo.of(row) for row in rows]
 
 
 def _validated_name(raw: str) -> str:
@@ -92,6 +116,20 @@ def _validated_name(raw: str) -> str:
     return name
 
 
+def _live_folder(folders: FolderRepository, owner_sub: str, folder_id: uuid.UUID) -> Folder:
+    """A live folder of the caller's, or 404 -- missing, foreign and trashed
+    look the same from outside (files-feature.md §5)."""
+    row = folders.get(owner_sub, folder_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such folder")
+    return row
+
+
+def _json_id(value: uuid.UUID | None) -> str | None:
+    """audit_log.detail is JSONB, which cannot hold a UUID object."""
+    return str(value) if value else None
+
+
 def _measure(stream) -> int:
     """Exact size of an already-buffered upload. Starlette has read the whole
     body before the handler runs, so this is authoritative -- the
@@ -103,9 +141,18 @@ def _measure(stream) -> int:
 
 
 @router.post("", response_model=FileInfo, responses={201: {"model": FileInfo}})
-def upload_file(claims: Claims, repo: FileRepo, file: UploadFile, response: Response) -> FileInfo:
+def upload_file(
+    claims: Claims,
+    repo: FileRepo,
+    folders: FolderRepo,
+    file: UploadFile,
+    response: Response,
+    folder_id: Annotated[uuid.UUID | None, Form()] = None,
+) -> FileInfo:
     settings = get_settings()
     name = _validated_name(file.filename or "")
+    if folder_id is not None:
+        _live_folder(folders, claims["sub"], folder_id)
 
     if any(name.lower().endswith(suffix) for suffix in settings.denied_extensions):
         raise HTTPException(
@@ -121,7 +168,7 @@ def upload_file(claims: Claims, repo: FileRepo, file: UploadFile, response: Resp
 
     content_type = file.content_type or "application/octet-stream"
 
-    existing = repo.find_by_name(claims["sub"], name, None)
+    existing = repo.find_by_name(claims["sub"], name, folder_id)
     if existing is not None:
         return _append_version(claims, repo, existing, file, size, content_type)
 
@@ -129,7 +176,7 @@ def upload_file(claims: Claims, repo: FileRepo, file: UploadFile, response: Resp
         row = repo.reserve(
             claims["sub"],
             name=name,
-            folder_id=None,
+            folder_id=folder_id,
             size_bytes=size,
             content_type=content_type,
             quota_bytes=settings.user_quota_bytes,
@@ -204,6 +251,85 @@ def get_file(claims: Claims, repo: FileRepo, file_id: uuid.UUID) -> FileInfo:
     row = repo.get(claims["sub"], file_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such file")
+    return FileInfo.of(row)
+
+
+class FilePatch(BaseModel):
+    """Omitted = unchanged; an explicit `folder_id: null` = move to the root."""
+
+    name: str | None = None
+    description: str | None = Field(None, max_length=2000)
+    tags: list[str] | None = Field(None, max_length=200)
+    folder_id: uuid.UUID | None = None
+
+
+_TAGS_LIMIT_MESSAGE = "At most 20 tags of at most 50 characters"
+
+
+def _validated_tags(raw: list[str]) -> list[str]:
+    """Trimmed, lowercased, empties and repeats dropped, submission order kept."""
+    tags: list[str] = []
+    seen: set[str] = set()
+    for tag in (t.strip().lower() for t in raw):
+        if not tag:
+            continue
+        if len(tag) > 50:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, _TAGS_LIMIT_MESSAGE)
+        if tag in seen:
+            continue
+        if len(tags) >= 20:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, _TAGS_LIMIT_MESSAGE)
+        seen.add(tag)
+        tags.append(tag)
+    return tags
+
+
+@router.patch("/{file_id}", response_model=FileInfo)
+def update_file(
+    claims: Claims, repo: FileRepo, folders: FolderRepo, file_id: uuid.UUID, body: FilePatch
+) -> FileInfo:
+    """Rename, describe, retag and move in one call. Metadata only: no MinIO
+    call, because the object key is the id."""
+    sub = claims["sub"]
+    row = repo.get(sub, file_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such file")
+    before = {"name": row.name, "description": row.description, "tags": list(row.tags)}
+    before_folder = row.folder_id
+
+    changes: dict[str, Any] = {}
+    if body.name is not None and (name := _validated_name(body.name)) != row.name:
+        changes["name"] = name
+    description = body.description if (body.description or "").strip() else None
+    if "description" in body.model_fields_set and description != row.description:
+        changes["description"] = description
+    if body.tags is not None and (tags := _validated_tags(body.tags)) != row.tags:
+        changes["tags"] = tags
+    if "folder_id" in body.model_fields_set and body.folder_id != row.folder_id:
+        if body.folder_id is not None:
+            _live_folder(folders, sub, body.folder_id)
+        changes["folder_id"] = body.folder_id
+
+    if changes:
+        try:
+            repo.update(row, **changes)
+        except NameTaken as e:
+            name = changes.get("name", before["name"])
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, f"A file named {name} already exists here"
+            ) from e
+    if "name" in changes:
+        repo.audit(sub, "rename", "file", row.id, {"before": before["name"], "after": row.name})
+    if "folder_id" in changes:
+        detail = {"before": _json_id(before_folder), "after": _json_id(row.folder_id)}
+        repo.audit(sub, "move", "file", row.id, detail)
+    if "description" in changes or "tags" in changes:
+        after = {"description": row.description, "tags": list(row.tags)}
+        detail = {
+            "before": {"description": before["description"], "tags": before["tags"]},
+            "after": after,
+        }
+        repo.audit(sub, "retag", "file", row.id, detail)
     return FileInfo.of(row)
 
 
