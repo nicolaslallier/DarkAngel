@@ -19,6 +19,12 @@ class QuotaExceeded(Exception):
         super().__init__(f"{used} of {limit} bytes used, {needed} more needed")
 
 
+class NameTaken(Exception):
+    """A live sibling already has this name. Raised from the unique index
+    (`uq_folders_sibling_name`, `uq_files_folder_name`), never from a SELECT
+    first: a check-then-insert would let two racing requests both pass."""
+
+
 class FileRepository:
     """Every query is scoped to one owner, and `owner_sub` is always the first
     argument so that omitting it is a TypeError rather than a data leak.
