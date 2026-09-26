@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { downloadFile, type HomeFile, type Sort } from '@/api/files'
@@ -33,8 +33,12 @@ function reload() {
 }
 watch([folderId, q, tag], reload, { immediate: true })
 
-function setQuery(patch: Record<string, string | undefined>) {
-  return router.push({ query: { ...route.query, ...patch } })
+// Discrete clicks (a tag chip, a breadcrumb/folder link) push a new history
+// entry; the debounced search write below replaces the current one instead,
+// so a typing session doesn't fill history with one entry per pause.
+function setQuery(patch: Record<string, string | undefined>, replace = false) {
+  const query = { ...route.query, ...patch }
+  return replace ? router.replace({ query }) : router.push({ query })
 }
 
 const searchText = ref(q.value ?? '')
@@ -42,8 +46,11 @@ watch(q, (value) => (searchText.value = value ?? ''))
 let debounce: ReturnType<typeof setTimeout> | undefined
 function onSearch() {
   clearTimeout(debounce)
-  debounce = setTimeout(() => setQuery({ q: searchText.value.trim() || undefined }), 300)
+  debounce = setTimeout(() => setQuery({ q: searchText.value.trim() || undefined }, true), 300)
 }
+// A pending debounce firing after unmount would push the stale search into
+// whatever route the user navigated to next.
+onUnmounted(() => clearTimeout(debounce))
 
 function sortBy(key: Sort) {
   if (sort.value === key) {

@@ -126,6 +126,42 @@ it('writes the search box to ?q after a 300 ms pause', async () => {
   expect(router.currentRoute.value.query.q).toBe('tax')
 })
 
+it('does not write a stale search once the view has been unmounted', async () => {
+  const { wrapper, router } = await render()
+
+  vi.useFakeTimers()
+  await wrapper.get('input[type="search"]').setValue('tax')
+  wrapper.unmount()
+  vi.advanceTimersByTime(300)
+  vi.useRealTimers()
+  await flushPromises()
+
+  expect(router.currentRoute.value.query.q).toBeUndefined()
+})
+
+it('a search inside a folder keeps folder in the query, and clearing it returns to that folder', async () => {
+  vi.mocked(listFolders).mockResolvedValue([A])
+  const { wrapper, router } = await render('/files?folder=a')
+
+  vi.useFakeTimers()
+  await wrapper.get('input[type="search"]').setValue('tax')
+  vi.advanceTimersByTime(300)
+  vi.useRealTimers()
+  await flushPromises()
+
+  expect(router.currentRoute.value.query.folder).toBe('a')
+  expect(router.currentRoute.value.query.q).toBe('tax')
+
+  vi.useFakeTimers()
+  await wrapper.get('input[type="search"]').setValue('')
+  vi.advanceTimersByTime(300)
+  vi.useRealTimers()
+  await flushPromises()
+
+  expect(router.currentRoute.value.query.folder).toBe('a')
+  expect(router.currentRoute.value.query.q).toBeUndefined()
+})
+
 it('a tag chip filters by that tag, and the active tag can be removed', async () => {
   vi.mocked(listFiles).mockResolvedValue([aFile({ tags: ['tax'] })])
   const { wrapper, router } = await render()
