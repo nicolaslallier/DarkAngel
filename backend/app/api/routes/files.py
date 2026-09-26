@@ -15,8 +15,9 @@ from pydantic import BaseModel
 
 from app.core.auth import Claims
 from app.core.config import get_settings
-from app.models.files import File
+from app.models.files import File, Folder
 from app.repositories.files import FileRepo, QuotaExceeded
+from app.repositories.folders import FolderRepository
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -90,6 +91,20 @@ def _validated_name(raw: str) -> str:
     if any(character < " " or character == "\x7f" for character in name):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid file name")
     return name
+
+
+def _live_folder(folders: FolderRepository, owner_sub: str, folder_id: uuid.UUID) -> Folder:
+    """A live folder of the caller's, or 404 -- missing, foreign and trashed
+    look the same from outside (files-feature.md §5)."""
+    row = folders.get(owner_sub, folder_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such folder")
+    return row
+
+
+def _json_id(value: uuid.UUID | None) -> str | None:
+    """audit_log.detail is JSONB, which cannot hold a UUID object."""
+    return str(value) if value else None
 
 
 def _measure(stream) -> int:

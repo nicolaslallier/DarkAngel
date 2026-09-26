@@ -13,8 +13,9 @@ from minio.error import S3Error
 from app.api.routes import files
 from app.core import auth
 from app.main import app
-from app.models.files import File
-from app.repositories.files import QuotaExceeded, file_repository
+from app.models.files import File, Folder
+from app.repositories.files import NameTaken, QuotaExceeded, file_repository
+from app.repositories.folders import folder_repository
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 ISSUER = "https://keycloak.famillelallier.net/realms/ea"
@@ -146,6 +147,7 @@ class FakeFileRepository:
         self.versions: dict[uuid.UUID, int] = {}
         self.audits: list[tuple] = []
         self.swept: list[str] = []
+        self.folders = FakeFolderRepository(self)
 
     def _live(self, owner_sub):
         return [
@@ -222,11 +224,84 @@ class FakeFileRepository:
         self.audits.append((actor_sub, action, target_type, target_id, detail))
 
 
+class FakeFolderRepository:
+    """The slice of FolderRepository the routes use, over a list. Mirrors the
+    real SQL for every case tests/integration/test_folder_repository.py pins:
+    case-insensitive sibling names excluding self, live-only subtrees, one
+    shared deleted_at per recursive delete."""
+
+    def __init__(self, files: FakeFileRepository):
+        self.files = files
+        self.rows: list[Folder] = []
+
+    def _live(self, owner_sub):
+        return [r for r in self.rows if r.owner_sub == owner_sub and r.deleted_at is None]
+
+    def _check_free(self, owner_sub, name, parent_id, itself=None):
+        for r in self._live(owner_sub):
+            if r is not itself and r.parent_id == parent_id and r.name.lower() == name.lower():
+                raise NameTaken
+
+    def list(self, owner_sub):
+        return sorted(self._live(owner_sub), key=lambda r: (r.name.lower(), r.id))
+
+    def get(self, owner_sub, folder_id):
+        return next((r for r in self._live(owner_sub) if r.id == folder_id), None)
+
+    def create(self, owner_sub, *, name, parent_id):
+        self._check_free(owner_sub, name, parent_id)
+        row = Folder(id=uuid.uuid4(), owner_sub=owner_sub, name=name, parent_id=parent_id)
+        self.rows.append(row)
+        return row
+
+    def update(self, folder, **changes):
+        name = changes.get("name", folder.name)
+        parent_id = changes.get("parent_id", folder.parent_id)
+        self._check_free(folder.owner_sub, name, parent_id, itself=folder)
+        for field, value in changes.items():
+            setattr(folder, field, value)
+        return folder
+
+    def is_cycle(self, owner_sub, folder_id, new_parent_id):
+        current = self.get(owner_sub, new_parent_id)
+        while current is not None:
+            if current.id == folder_id:
+                return True
+            current = self.get(owner_sub, current.parent_id)
+        return False
+
+    def _subtree(self, owner_sub, folder_id):
+        if self.get(owner_sub, folder_id) is None:
+            return []
+        ids = [folder_id]
+        for parent in ids:
+            ids += [r.id for r in self._live(owner_sub) if r.parent_id == parent]
+        return ids
+
+    def _files_in(self, owner_sub, ids):
+        return [f for f in self.files._live(owner_sub) if f.folder_id in ids]
+
+    def subtree_counts(self, owner_sub, folder_id):
+        ids = self._subtree(owner_sub, folder_id)
+        return max(len(ids) - 1, 0), len(self._files_in(owner_sub, ids))
+
+    def soft_delete_subtree(self, owner_sub, folder_id):
+        now = datetime.now(UTC)
+        ids = self._subtree(owner_sub, folder_id)
+        trashed = self._files_in(owner_sub, ids)
+        for row in [*trashed, *(r for r in self.rows if r.id in ids)]:
+            row.deleted_at = now
+        return max(len(ids) - 1, 0), len(trashed)
+
+
 @pytest.fixture
 def repo():
-    """Swap the repository for the in-memory fake. Explicit, never autouse:
-    the integration suite must keep talking to the real database."""
+    """Swap both repositories for the in-memory fakes; the folder fake is
+    `repo.folders`. Explicit, never autouse: the integration suite must keep
+    talking to the real database."""
     fake = FakeFileRepository()
     app.dependency_overrides[file_repository] = lambda: fake
+    app.dependency_overrides[folder_repository] = lambda: fake.folders
     yield fake
     app.dependency_overrides.pop(file_repository, None)
+    app.dependency_overrides.pop(folder_repository, None)
