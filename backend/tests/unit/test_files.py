@@ -1,3 +1,4 @@
+import time
 import uuid
 from datetime import datetime
 
@@ -550,6 +551,15 @@ def test_an_overlong_description_is_a_422(repo):
     assert patch(row.id, {"description": "x" * 2001}).status_code == 422
 
 
+def test_a_whitespace_only_description_is_stored_as_null(repo):
+    row = seed(repo, description="old")
+
+    response = patch(row.id, {"description": "   "})
+
+    assert response.json()["description"] is None
+    assert repo.audits[-1][1] == "retag"
+
+
 def test_tags_are_trimmed_lowercased_and_deduplicated_in_order(repo):
     row = seed(repo)
 
@@ -564,6 +574,19 @@ def test_too_many_or_too_long_tags_are_a_422(repo):
     assert patch(row.id, {"tags": [f"t{i}" for i in range(21)]}).status_code == 422
     assert patch(row.id, {"tags": ["x" * 51]}).status_code == 422
     assert patch(row.id, {"tags": ["x" * 50]}).status_code == 200
+
+
+def test_many_distinct_tags_are_rejected_quickly(repo):
+    """A huge tag list must 422 fast, not walk a quadratic loop (20k tags
+    used to take 0.73s and any user could pin a worker with it)."""
+    row = seed(repo)
+
+    start = time.perf_counter()
+    response = patch(row.id, {"tags": [f"t{i}" for i in range(20_000)]})
+    elapsed = time.perf_counter() - start
+
+    assert response.status_code == 422
+    assert elapsed < 0.3
 
 
 def test_folder_id_omitted_is_unchanged_and_null_is_the_root(repo):

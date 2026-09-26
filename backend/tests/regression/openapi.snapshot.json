@@ -146,6 +146,7 @@
                 "items": {
                   "type": "string"
                 },
+                "maxItems": 200,
                 "type": "array"
               },
               {

@@ -259,20 +259,28 @@ class FilePatch(BaseModel):
 
     name: str | None = None
     description: str | None = Field(None, max_length=2000)
-    tags: list[str] | None = None
+    tags: list[str] | None = Field(None, max_length=200)
     folder_id: uuid.UUID | None = None
+
+
+_TAGS_LIMIT_MESSAGE = "At most 20 tags of at most 50 characters"
 
 
 def _validated_tags(raw: list[str]) -> list[str]:
     """Trimmed, lowercased, empties and repeats dropped, submission order kept."""
     tags: list[str] = []
+    seen: set[str] = set()
     for tag in (t.strip().lower() for t in raw):
-        if tag and tag not in tags:
-            tags.append(tag)
-    if len(tags) > 20 or any(len(tag) > 50 for tag in tags):
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, "At most 20 tags of at most 50 characters"
-        )
+        if not tag:
+            continue
+        if len(tag) > 50:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, _TAGS_LIMIT_MESSAGE)
+        if tag in seen:
+            continue
+        if len(tags) >= 20:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, _TAGS_LIMIT_MESSAGE)
+        seen.add(tag)
+        tags.append(tag)
     return tags
 
 
@@ -292,8 +300,9 @@ def update_file(
     changes: dict[str, Any] = {}
     if body.name is not None and (name := _validated_name(body.name)) != row.name:
         changes["name"] = name
-    if "description" in body.model_fields_set and (body.description or None) != row.description:
-        changes["description"] = body.description or None
+    description = body.description if (body.description or "").strip() else None
+    if "description" in body.model_fields_set and description != row.description:
+        changes["description"] = description
     if body.tags is not None and (tags := _validated_tags(body.tags)) != row.tags:
         changes["tags"] = tags
     if "folder_id" in body.model_fields_set and body.folder_id != row.folder_id:
