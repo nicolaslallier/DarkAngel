@@ -5,11 +5,17 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import { deleteFile, listFiles, uploadFile } from '@/api/files'
 import FilesView from '@/views/FilesView.vue'
 
+vi.mock('@/auth', () => ({ accessToken: vi.fn(async () => null) }))
 vi.mock('@/api/files', () => ({
   listFiles: vi.fn(async () => []),
   uploadFile: vi.fn(async () => {}),
   deleteFile: vi.fn(async () => {}),
   downloadFile: vi.fn(async () => new Blob(['hello'])),
+}))
+// The store's refresh() also loads the folder tree.
+vi.mock('@/api/folders', () => ({
+  listFolders: vi.fn(async () => []),
+  deleteFolder: vi.fn(async () => {}),
 }))
 
 function render() {

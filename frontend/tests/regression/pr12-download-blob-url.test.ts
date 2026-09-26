@@ -5,6 +5,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { downloadFile, type HomeFile } from '@/api/files'
 import FilesView from '@/views/FilesView.vue'
 
+vi.mock('@/auth', () => ({ accessToken: vi.fn(async () => null) }))
+// The store's refresh() also loads the folder tree.
+vi.mock('@/api/folders', () => ({
+  listFolders: vi.fn(async () => []),
+  deleteFolder: vi.fn(async () => {}),
+}))
+
 /**
  * Regression — PR #12, MinIO home files.
  *
