@@ -156,8 +156,44 @@ class FakeFileRepository:
             if r.owner_sub == owner_sub and r.deleted_at is None and r.status == "ready"
         ]
 
-    def list(self, owner_sub, *, limit=100, offset=0):
-        return self._live(owner_sub)[offset : offset + limit]
+    SORT_KEYS = {
+        "name": lambda r: r.name.lower(),
+        "size": lambda r: r.size_bytes,
+        "updated_at": lambda r: r.updated_at,
+    }
+
+    def list(
+        self,
+        owner_sub,
+        *,
+        folder_id=None,
+        q=None,
+        tag=None,
+        sort="updated_at",
+        order="desc",
+        limit=100,
+        offset=0,
+    ):
+        # Mirrors FileRepository.list: q/tag drop the folder scope; q is a
+        # literal, case-insensitive substring of name, description or any tag;
+        # tag is exact containment; id breaks ties in the sort's direction.
+        rows = self._live(owner_sub)
+        if q is None and tag is None:
+            rows = [r for r in rows if r.folder_id == folder_id]
+        if q is not None:
+            needle = q.lower()
+            rows = [
+                r
+                for r in rows
+                if needle in r.name.lower()
+                or needle in (r.description or "").lower()
+                or any(needle in t.lower() for t in r.tags)
+            ]
+        if tag is not None:
+            rows = [r for r in rows if tag in r.tags]
+        key = self.SORT_KEYS[sort]
+        rows = sorted(rows, key=lambda r: (key(r), r.id), reverse=order == "desc")
+        return rows[offset : offset + limit]
 
     def get(self, owner_sub, file_id):
         return next((r for r in self._live(owner_sub) if r.id == file_id), None)

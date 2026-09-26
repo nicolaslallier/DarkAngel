@@ -16,8 +16,8 @@ from pydantic import BaseModel
 from app.core.auth import Claims
 from app.core.config import get_settings
 from app.models.files import File, Folder
-from app.repositories.files import FileRepo, QuotaExceeded
-from app.repositories.folders import FolderRepository
+from app.repositories.files import FileRepo, Order, QuotaExceeded, Sort
+from app.repositories.folders import FolderRepo, FolderRepository
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -28,6 +28,9 @@ class FileInfo(BaseModel):
     size: int
     content_type: str
     modified: datetime | None
+    folder_id: uuid.UUID | None
+    description: str | None
+    tags: list[str]
 
     @classmethod
     def of(cls, row: File) -> "FileInfo":
@@ -37,6 +40,9 @@ class FileInfo(BaseModel):
             size=row.size_bytes,
             content_type=row.content_type,
             modified=row.updated_at,
+            folder_id=row.folder_id,
+            description=row.description,
+            tags=row.tags,
         )
 
 
@@ -67,14 +73,31 @@ def _sweep(repo: FileRepo) -> None:
 def list_files(
     claims: Claims,
     repo: FileRepo,
+    folders: FolderRepo,
+    folder_id: uuid.UUID | None = None,
+    q: str | None = Query(None, max_length=200),
+    tag: str | None = Query(None, max_length=50),
+    sort: Sort = "updated_at",
+    order: Order = "desc",
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> list[FileInfo]:
+    """Without q/tag: one folder (absent = root). With either: every live file
+    of the caller's, wherever it is -- the SPA shows a Location column then."""
+    sub = claims["sub"]
     # There is no scheduler in this stack, so the sweep rides along here. It is
     # a single indexed DELETE over a table that is almost always empty.
     # ponytail: inline sweep; move to a cron if list latency ever suffers
     _sweep(repo)
-    return [FileInfo.of(row) for row in repo.list(claims["sub"], limit=limit, offset=offset)]
+    # A cleared search box sends `?q=`: that is "no search", not an error.
+    q = (q or "").strip() or None
+    tag = (tag or "").strip().lower() or None
+    if q is None and tag is None and folder_id is not None:
+        _live_folder(folders, sub, folder_id)
+    rows = repo.list(
+        sub, folder_id=folder_id, q=q, tag=tag, sort=sort, order=order, limit=limit, offset=offset
+    )
+    return [FileInfo.of(row) for row in rows]
 
 
 def _validated_name(raw: str) -> str:

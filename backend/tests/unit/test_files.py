@@ -15,17 +15,28 @@ def auth(sub="user-1"):
     return {"Authorization": f"Bearer {token(sub=sub)}"}
 
 
-def seed(repo, name="a.txt", sub="user-1", size=5, content_type="text/plain"):
+def seed(
+    repo,
+    name="a.txt",
+    sub="user-1",
+    size=5,
+    content_type="text/plain",
+    folder_id=None,
+    description=None,
+    tags=(),
+):
     """A ready file straight in the fake, so read tests do not depend on upload."""
     row = repo.reserve(
         sub,
         name=name,
-        folder_id=None,
+        folder_id=folder_id,
         size_bytes=size,
         content_type=content_type,
         quota_bytes=10**9,
     )
     repo.finalize(row, s3_version_id="v1", actor_sub=sub)
+    row.description = description
+    row.tags = list(tags)
     return row
 
 
@@ -46,6 +57,9 @@ def test_list_returns_the_owners_ready_files(repo):
             "name": "bail été.txt",
             "size": 5,
             "content_type": "text/plain",
+            "folder_id": None,
+            "description": None,
+            "tags": [],
         }
     ]
 
@@ -125,6 +139,105 @@ def test_listing_survives_a_sweep_against_unreachable_storage(repo, store):
 
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
+def names(response):
+    return [f["name"] for f in response.json()]
+
+
+def test_list_shows_the_root_by_default(repo):
+    folder = repo.folders.create("user-1", name="A", parent_id=None)
+    seed(repo, name="root.txt")
+    seed(repo, name="inside.txt", folder_id=folder.id)
+
+    assert names(client.get("/api/files", headers=auth())) == ["root.txt"]
+
+
+def test_list_shows_one_folder_when_asked(repo):
+    folder = repo.folders.create("user-1", name="A", parent_id=None)
+    seed(repo, name="root.txt")
+    inside = seed(repo, name="inside.txt", folder_id=folder.id)
+
+    response = client.get("/api/files", headers=auth(), params={"folder_id": str(folder.id)})
+
+    assert names(response) == ["inside.txt"]
+    assert response.json()[0]["folder_id"] == str(inside.folder_id)
+
+
+def test_listing_an_unknown_or_foreign_folder_is_a_404(repo):
+    theirs = repo.folders.create("user-2", name="A", parent_id=None)
+
+    for folder_id in (theirs.id, uuid.uuid4()):
+        response = client.get("/api/files", headers=auth(), params={"folder_id": str(folder_id)})
+        assert response.status_code == 404
+
+
+def test_search_ignores_the_folder_and_matches_name_description_and_tags(repo):
+    folder = repo.folders.create("user-1", name="A", parent_id=None)
+    seed(repo, name="Tax 2026.pdf")
+    seed(repo, name="scan.pdf", folder_id=folder.id, description="tax return")
+    seed(repo, name="r.pdf", tags=["tax"])
+    seed(repo, name="other.txt")
+
+    response = client.get(
+        "/api/files", headers=auth(), params={"q": "TAX", "folder_id": str(folder.id)}
+    )
+
+    assert sorted(names(response)) == ["Tax 2026.pdf", "r.pdf", "scan.pdf"]
+
+
+def test_the_tag_filter_is_trimmed_lowercased_and_exact(repo):
+    seed(repo, name="a.txt", tags=["tax"])
+    seed(repo, name="b.txt", tags=["taxes"])
+
+    assert names(client.get("/api/files", headers=auth(), params={"tag": " TAX "})) == ["a.txt"]
+
+
+def test_q_and_tag_together_must_both_match(repo):
+    seed(repo, name="a.txt", tags=["tax"])
+    seed(repo, name="receipt.txt", tags=["tax"])
+    seed(repo, name="receipt-2.txt")
+
+    response = client.get("/api/files", headers=auth(), params={"q": "receipt", "tag": "tax"})
+
+    assert names(response) == ["receipt.txt"]
+
+
+def test_a_blank_search_is_the_plain_folder_listing(repo):
+    folder = repo.folders.create("user-1", name="A", parent_id=None)
+    seed(repo, name="root.txt")
+    seed(repo, name="inside.txt", folder_id=folder.id)
+
+    response = client.get("/api/files", headers=auth(), params={"q": "   ", "tag": ""})
+
+    assert response.status_code == 200
+    assert names(response) == ["root.txt"]
+
+
+def test_an_overlong_search_is_rejected(repo):
+    assert client.get("/api/files", headers=auth(), params={"q": "x" * 201}).status_code == 422
+
+
+def test_sort_by_name_ascending_ignores_case(repo):
+    for name in ("b.txt", "A.txt", "c.txt"):
+        seed(repo, name=name)
+
+    response = client.get("/api/files", headers=auth(), params={"sort": "name", "order": "asc"})
+
+    assert names(response) == ["A.txt", "b.txt", "c.txt"]
+
+
+def test_sort_by_size_descending(repo):
+    seed(repo, name="small.txt", size=1)
+    seed(repo, name="big.txt", size=9)
+
+    response = client.get("/api/files", headers=auth(), params={"sort": "size", "order": "desc"})
+
+    assert names(response) == ["big.txt", "small.txt"]
+
+
+def test_an_unknown_sort_key_is_rejected(repo):
+    assert client.get("/api/files", headers=auth(), params={"sort": "owner"}).status_code == 422
 
 
 def upload(name="a.txt", data=b"hello", sub="user-1", content_type="text/plain"):

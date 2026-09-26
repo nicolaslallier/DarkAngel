@@ -21,6 +21,29 @@
             "title": "Content Type",
             "type": "string"
           },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -45,6 +68,13 @@
           "size": {
             "title": "Size",
             "type": "integer"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
           }
         },
         "required": [
@@ -52,7 +82,10 @@
           "name",
           "size",
           "content_type",
-          "modified"
+          "modified",
+          "folder_id",
+          "description",
+          "tags"
         ],
         "title": "FileInfo",
         "type": "object"
@@ -299,8 +332,89 @@
   "paths": {
     "/api/files": {
       "get": {
+        "description": "Without q/tag: one folder (absent = root). With either: every live file\nof the caller's, wherever it is -- the SPA shows a Location column then.",
         "operationId": "list_files_api_files_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "folder_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Folder Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "updated_at",
+              "enum": [
+                "name",
+                "size",
+                "updated_at"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
           {
             "in": "query",
             "name": "limit",

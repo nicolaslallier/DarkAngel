@@ -3,10 +3,10 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.db import Db
@@ -23,6 +23,18 @@ class NameTaken(Exception):
     """A live sibling already has this name. Raised from the unique index
     (`uq_folders_sibling_name`, `uq_files_folder_name`), never from a SELECT
     first: a check-then-insert would let two racing requests both pass."""
+
+
+Sort = Literal["name", "size", "updated_at"]
+Order = Literal["asc", "desc"]
+
+SORT_KEYS = {"name": func.lower(File.name), "size": File.size_bytes, "updated_at": File.updated_at}
+
+
+def _contains(q: str) -> str:
+    """An ILIKE pattern matching `q` literally: its own % and _ are not wildcards."""
+    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 class FileRepository:
@@ -43,18 +55,46 @@ class FileRepository:
 
     # --- reads ---
 
-    def list(self, owner_sub: str, *, limit: int = 100, offset: int = 0) -> Sequence[File]:
-        statement = (
-            select(File)
-            .where(
-                File.owner_sub == owner_sub,
-                File.deleted_at.is_(None),
-                File.status == "ready",
-            )
-            .order_by(File.updated_at.desc())
-            .limit(limit)
-            .offset(offset)
+    def list(
+        self,
+        owner_sub: str,
+        *,
+        folder_id: uuid.UUID | None = None,
+        q: str | None = None,
+        tag: str | None = None,
+        sort: Sort = "updated_at",
+        order: Order = "desc",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[File]:
+        statement = select(File).where(
+            File.owner_sub == owner_sub,
+            File.deleted_at.is_(None),
+            File.status == "ready",
         )
+        if q is None and tag is None:
+            in_folder = (
+                File.folder_id.is_(None) if folder_id is None else File.folder_id == folder_id
+            )
+            statement = statement.where(in_folder)
+        if q is not None:
+            # ponytail: ILIKE scans the owner's rows; add pg_trgm GIN indexes on
+            # name/description if per-user file counts reach the tens of thousands.
+            pattern = _contains(q)
+            tag_value = func.unnest(File.tags).column_valued("t")
+            statement = statement.where(
+                or_(
+                    File.name.ilike(pattern, escape="\\"),
+                    File.description.ilike(pattern, escape="\\"),
+                    select(tag_value).where(tag_value.ilike(pattern, escape="\\")).exists(),
+                )
+            )
+        if tag is not None:
+            statement = statement.where(File.tags.contains([tag]))  # @>, served by ix_files_tags
+        key = SORT_KEYS[sort]
+        # id breaks ties, so a page boundary never splits or repeats equal keys.
+        ordering = (key.asc(), File.id.asc()) if order == "asc" else (key.desc(), File.id.desc())
+        statement = statement.order_by(*ordering).limit(limit).offset(offset)
         return self.db.scalars(statement).all()
 
     def get(self, owner_sub: str, file_id: uuid.UUID) -> File | None:
