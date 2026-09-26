@@ -82,6 +82,75 @@ it('pathOf walks parent_id up to the root', async () => {
   expect(store.pathOf('gone')).toEqual([])
 })
 
+it('pathOf terminates instead of looping when folders form a cycle', async () => {
+  // A concurrent pair of opposite moves can leave this on the server.
+  const X = { id: 'x', name: 'X', parent_id: 'y' }
+  const Y = { id: 'y', name: 'Y', parent_id: 'x' }
+  vi.mocked(listFolders).mockResolvedValue([X, Y])
+  const store = useFilesStore()
+  await store.load()
+
+  expect(store.pathOf('x')).toEqual([Y, X])
+})
+
+it('a slower response for an older load() does not overwrite a newer one', async () => {
+  let resolveOld!: (files: HomeFile[]) => void
+  let resolveNew!: (files: HomeFile[]) => void
+  const older = new Promise<HomeFile[]>((resolve) => {
+    resolveOld = resolve
+  })
+  const newer = new Promise<HomeFile[]>((resolve) => {
+    resolveNew = resolve
+  })
+  vi.mocked(listFiles).mockReturnValueOnce(older).mockReturnValueOnce(newer)
+  const store = useFilesStore()
+
+  const first = store.load({ q: 'old' })
+  const second = store.load({ q: 'new' })
+
+  // The newer request's response lands first ...
+  resolveNew([aFile])
+  await second
+  // ... then the older, slower request's response finally arrives.
+  resolveOld([])
+  await first
+
+  expect(store.files).toEqual([aFile])
+})
+
+it('a slower loadMore() response is not appended once a newer one already landed', async () => {
+  const firstPage = Array.from({ length: PAGE_SIZE }, (_, i) => ({ ...aFile, id: `p0-${i}` }))
+  vi.mocked(listFiles).mockResolvedValueOnce(firstPage)
+  const store = useFilesStore()
+  await store.load()
+  expect(store.hasMore).toBe(true)
+
+  let resolveOld!: (files: HomeFile[]) => void
+  let resolveNew!: (files: HomeFile[]) => void
+  const older = new Promise<HomeFile[]>((resolve) => {
+    resolveOld = resolve
+  })
+  const newer = new Promise<HomeFile[]>((resolve) => {
+    resolveNew = resolve
+  })
+  vi.mocked(listFiles).mockReturnValueOnce(older).mockReturnValueOnce(newer)
+
+  const first = store.loadMore()
+  const second = store.loadMore()
+
+  // The newer of the two loadMore() calls lands first ...
+  const secondPage = Array.from({ length: PAGE_SIZE }, (_, i) => ({ ...aFile, id: `p1-${i}` }))
+  resolveNew(secondPage)
+  await second
+  expect(store.files).toHaveLength(PAGE_SIZE * 2)
+
+  // ... then the older, slower one finally arrives and must not be appended.
+  resolveOld([{ ...aFile, id: 'stale' }])
+  await first
+
+  expect(store.files).toHaveLength(PAGE_SIZE * 2)
+})
+
 it('upload() sends every picked file into the folder, then reloads', async () => {
   const one = new File(['a'], 'one.txt')
   const two = new File(['b'], 'two.txt')

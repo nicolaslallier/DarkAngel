@@ -15,6 +15,9 @@ export const useFilesStore = defineStore('files', () => {
   const error = ref<string | null>(null)
   const loading = ref(false)
   let params: ListParams = {}
+  // Bumped by refresh()/loadMore() so a slow response for an older request
+  // never overwrites a newer one that already landed.
+  let requestId = 0
 
   async function run(action: () => Promise<unknown>) {
     loading.value = true
@@ -31,20 +34,27 @@ export const useFilesStore = defineStore('files', () => {
 
   // No optimistic updates: every mutation reloads the folders and the first page.
   async function refresh() {
+    const id = ++requestId
     const [tree, page] = await Promise.all([
       listFolders(),
       listFiles({ ...params, limit: PAGE_SIZE, offset: 0 }),
     ])
+    if (id !== requestId) return // a newer load()/loadMore() already landed
     folders.value = tree
     files.value = page
     hasMore.value = page.length === PAGE_SIZE
   }
 
-  /** Root first, ending at `id`. Empty for the root or an unknown id. */
+  /** Root first, ending at `id`. Empty for the root or an unknown id.
+   *
+   * A concurrent pair of opposite moves can leave parent_id cycles on the
+   * server; the visited set stops the walk instead of looping forever. */
   function pathOf(id: string | null): Folder[] {
     const path: Folder[] = []
+    const visited = new Set<string>()
     let folder = folders.value.find((f) => f.id === id)
-    while (folder) {
+    while (folder && !visited.has(folder.id)) {
+      visited.add(folder.id)
       path.unshift(folder)
       const parent = folder.parent_id
       folder = folders.value.find((f) => f.id === parent)
@@ -59,7 +69,9 @@ export const useFilesStore = defineStore('files', () => {
 
   const loadMore = () =>
     run(async () => {
+      const id = ++requestId
       const page = await listFiles({ ...params, limit: PAGE_SIZE, offset: files.value.length })
+      if (id !== requestId) return // a newer load()/loadMore() already landed
       files.value = [...files.value, ...page]
       hasMore.value = page.length === PAGE_SIZE
     })
