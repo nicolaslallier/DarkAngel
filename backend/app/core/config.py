@@ -38,9 +38,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://darkangel:@postgres:5432/darkangel"
 
     # Post-upload AI summary by an Ollama server (`/api/generate`). Empty URL =
-    # no summaries. The stack points it at the LAN Ollama the AI repo uses.
+    # no summaries. The stack points it at the Ollama on the Mac at 192.168.2.35.
     ollama_url: str = ""
-    ollama_model: str = "qwen3.8:27b-mlx"
+    ollama_model: str = "gemma4:26b-a4b-it-qat"
 
     # Upload guards. Both are refused with 413: one file over the first, or a
     # file that would push the owner's total over the second.

@@ -49,11 +49,12 @@ services:
       # POSTGRES_PASSWORD is a stack variable `make up` copies from
       # .portainer.env, the same way S3_SECRET_KEY arrives.
       DARKANGEL_DATABASE_URL: postgresql+psycopg://darkangel:${POSTGRES_PASSWORD:-}@postgres:5432/darkangel
-      # Post-upload AI summaries (backend/app/summary.py) by the LAN Ollama the
-      # AI repo also uses. Not a secret, so no stack variable; empty turns
-      # summaries off, and an unreachable server only leaves them blank.
-      DARKANGEL_OLLAMA_URL: http://192.168.2.40:11434
-      DARKANGEL_OLLAMA_MODEL: qwen3.8:27b-mlx
+      # Post-upload AI summaries (backend/app/summary.py) by the Ollama on the
+      # Mac at 192.168.2.35 (Ollama.app, listening on *:11434). Not a secret,
+      # so no stack variable; empty turns summaries off, and an unreachable
+      # server (Mac asleep, IP changed) only leaves them blank.
+      DARKANGEL_OLLAMA_URL: http://192.168.2.35:11434
+      DARKANGEL_OLLAMA_MODEL: gemma4:26b-a4b-it-qat
     expose:
       - "8000"
     # Named for infra-net, which every app on this host shares: a plain
