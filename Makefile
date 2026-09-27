@@ -39,7 +39,7 @@ DIST ?= dist
         test test-backend test-unit test-integration test-regression test-frontend \
         snapshot services-test-up services-test-down migrate coverage coverage-backend coverage-frontend \
         build build-backend build-frontend preview \
-        up pull down delete webhook stack-selftest deploy keycloak-client postgres \
+        up pull down delete webhook stack-selftest deploy keycloak-client postgres files-reset \
         runner-env check-runner-env runner-up runner-down runner-restart \
         runner-logs runner-status runner-pull runner-shell \
         up-local down-local restart ps logs \
@@ -253,6 +253,9 @@ keycloak-client: ## Create/update the darkangel-spa client in Keycloak realm ea 
 
 postgres: ## Create/update the Infra PostgreSQL database + role the metadata lives in (PGADMIN_URL)
 	@scripts/provision-postgres.sh
+
+files-reset: ## One-time, after the SeaweedFS cutover: empty files + file_versions (PGADMIN_URL, CONFIRM=darkangel)
+	@scripts/files-reset.sh
 
 # The webhook only redeploys; stopping the stack is `make down`, and creating
 # one is `make up`. deploy.yml prefers the API path (PORTAINER_API_KEY), which
