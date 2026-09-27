@@ -14,7 +14,7 @@ vi.mock('@/api/folders', () => ({
 }))
 
 /**
- * Regression — PR #12, MinIO home files.
+ * Regression — PR #12, home files.
  *
  * The API needs a bearer token, so a download is a fetch into a Blob handed to
  * a throwaway <a>. Revoking the object URL in the same tick as `link.click()`

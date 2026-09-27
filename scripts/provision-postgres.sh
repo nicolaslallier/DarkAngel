@@ -6,8 +6,7 @@
 #   role      darkangel  -- owns that database and nothing else
 #
 # Needs an admin connection to the Infra Postgres in PGADMIN_URL, and writes
-# the generated password back into .portainer.env as POSTGRES_PASSWORD, the
-# same way provision-minio.sh handles MINIO_SECRET_KEY.
+# the generated password back into .portainer.env as POSTGRES_PASSWORD.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

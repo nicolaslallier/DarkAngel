@@ -56,13 +56,13 @@ note() { printf 'portainer-stack.sh: %b\n' "$*"; }
 # deploy/portainer-stack.yml reads exactly these; every other variable in the
 # environment stays out, so nothing unrelated leaks into the stack. Portainer
 # replaces the whole list on each deploy, so a value set by hand in its UI would
-# not survive the next `make up` -- the MinIO and Postgres secrets have to come
+# not survive the next `make up` -- the S3 and Postgres secrets have to come
 # through here.
-stack_env() { # <image-owner> <image-tag> <minio-secret-key> <postgres-password>
-  jq -n --arg owner "$1" --arg tag "$2" --arg minio "$3" --arg pg "$4" \
+stack_env() { # <image-owner> <image-tag> <s3-secret-key> <postgres-password>
+  jq -n --arg owner "$1" --arg tag "$2" --arg s3 "$3" --arg pg "$4" \
     '[{name: "IMAGE_OWNER", value: $owner},
       {name: "IMAGE_TAG", value: $tag},
-      {name: "MINIO_SECRET_KEY", value: $minio},
+      {name: "S3_SECRET_KEY", value: $s3},
       {name: "POSTGRES_PASSWORD", value: $pg}]'
 }
 
@@ -81,7 +81,7 @@ gen_uuid() {
 selftest() {
   local got want
   got="$(stack_env nicolaslallier latest s3cret pgpass | jq -c .)"
-  want='[{"name":"IMAGE_OWNER","value":"nicolaslallier"},{"name":"IMAGE_TAG","value":"latest"},{"name":"MINIO_SECRET_KEY","value":"s3cret"},{"name":"POSTGRES_PASSWORD","value":"pgpass"}]'
+  want='[{"name":"IMAGE_OWNER","value":"nicolaslallier"},{"name":"IMAGE_TAG","value":"latest"},{"name":"S3_SECRET_KEY","value":"s3cret"},{"name":"POSTGRES_PASSWORD","value":"pgpass"}]'
   [ "$got" = "$want" ] || die "selftest: stack_env\n  got:  $got\n  want: $want"
   got="$(stack_env 'o w' 'sha-1234' '' '' | jq -r '.[1].value')"
   [ "$got" = sha-1234 ] || die "selftest: stack_env did not carry the tag through"
@@ -198,11 +198,11 @@ sid=""
 
 case "$cmd" in
   up|pull)
-    [ -n "${MINIO_SECRET_KEY:-}" ] && [ "$MINIO_SECRET_KEY" != change-me ] ||
-      note "MINIO_SECRET_KEY is not set in .portainer.env: the Files page will fail (see 'make minio')"
+    [ -n "${S3_SECRET_KEY:-}" ] && [ "$S3_SECRET_KEY" != change-me ] ||
+      note "S3_SECRET_KEY is not set in .portainer.env: the Files page will fail (see README, Files)"
     [ -n "${POSTGRES_PASSWORD:-}" ] && [ "$POSTGRES_PASSWORD" != change-me ] ||
       note "POSTGRES_PASSWORD is not set in .portainer.env: the backend cannot start (see 'make postgres')"
-    env="$(stack_env "$IMAGE_OWNER" "$IMAGE_TAG" "${MINIO_SECRET_KEY:-}" "${POSTGRES_PASSWORD:-}")"
+    env="$(stack_env "$IMAGE_OWNER" "$IMAGE_TAG" "${S3_SECRET_KEY:-}" "${POSTGRES_PASSWORD:-}")"
     if [ -z "$sid" ]; then
       [ "$cmd" = up ] || die "stack '$STACK' does not exist yet -- 'make up' first"
       hook="$(gen_uuid)"

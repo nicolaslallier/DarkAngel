@@ -1,7 +1,7 @@
 """Regression — spec risk R-1, ownership isolation, ROUTE layer only.
 
 Before the metadata moved to Postgres, isolation was structural: a user's
-objects lived under a MinIO key prefixed with their `sub`, so there was no
+objects lived under an object key prefixed with their `sub`, so there was no
 query to get wrong. Now every route reaches a row through `FileRepository`,
 and isolation is only as good as `WHERE owner_sub = ...` in that one module.
 

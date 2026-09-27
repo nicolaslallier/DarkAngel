@@ -20,7 +20,7 @@ verify` is the closest local equivalent of that gate. The raw equivalents:
 make install                                   # install both sides
 cd backend && .venv/bin/python -m pytest -m unit        # fast, nothing real
 cd backend && .venv/bin/python -m pytest -m regression  # pinned bugs + contract
-cd backend && .venv/bin/python -m pytest -m integration # needs a real MinIO
+cd backend && .venv/bin/python -m pytest -m integration # needs SeaweedFS + Postgres
 cd frontend && npm run test                             # vitest
 cd backend && .venv/bin/python -m ruff check . # lint backend
 cd backend && .venv/bin/uvicorn app.main:app --reload --port 8000
@@ -50,9 +50,10 @@ guide — read it before adding a test.
 - `core/auth.py` — Keycloak (realm `ea`) bearer-token check. Protect a route by
   taking the `Claims` dependency; `/api/health` is the only public route.
 - `api/routes/files.py` — home files: metadata in PostgreSQL (`repositories/files.py`),
-  bytes in the Infra MinIO (bucket `darkangel-files`, provisioned by `make minio`) under
-  `<sub>/<file uuid>`. `api/routes/folders.py` + `repositories/folders.py` hold the
-  folder tree. Every query filters on the caller's `sub`. Tests swap `minio_client()`
+  bytes in the Infra SeaweedFS (bucket `darkangel-files`, provisioned by Infra's
+  `make s3-provision`) under `<sub>/<file uuid>`. `api/routes/folders.py` +
+  `repositories/folders.py` hold the folder tree. Every query filters on the
+  caller's `sub`. Tests swap `s3_client()`
   and both repositories for in-memory fakes (`tests/conftest.py`).
 
 **Frontend** (`frontend/src/`)

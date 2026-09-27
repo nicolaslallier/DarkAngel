@@ -1,6 +1,7 @@
 import time
 import uuid
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -127,7 +128,7 @@ def test_listing_sweeps_abandoned_reservations(repo, store):
 
 
 def test_listing_survives_a_sweep_against_unreachable_storage(repo, store):
-    """§12: GET /api/files needs no object storage, so a MinIO outage during
+    """§12: GET /api/files needs no object storage, so a storage outage during
     the ride-along sweep must not turn it into a 500. An unreachable server
     raises urllib3's MaxRetryError, which is not an S3Error."""
 
@@ -311,6 +312,39 @@ def test_a_failed_upload_leaves_no_reservation(repo, store, monkeypatch):
     assert client.get("/api/files", headers=auth()).json() == []
 
 
+def unversioned(store, monkeypatch):
+    """Make the fake behave like an unversioned bucket: the bytes land, but the
+    write result carries no version id."""
+    real_put = store.put_object
+
+    def put_object(*args, **kwargs):
+        real_put(*args, **kwargs)
+        return SimpleNamespace(version_id=None)
+
+    monkeypatch.setattr(store, "put_object", put_object)
+
+
+def test_an_unversioned_bucket_fails_a_new_upload(repo, store, monkeypatch, caplog):
+    unversioned(store, monkeypatch)
+
+    response = upload()
+
+    assert response.status_code == 502
+    assert "no version id" in caplog.text
+    assert repo.rows == []
+    assert store.objects == {}
+
+
+def test_an_unversioned_bucket_fails_a_new_version(repo, store, monkeypatch):
+    first = upload(name="notes.txt", data=b"one").json()
+    unversioned(store, monkeypatch)
+
+    response = upload(name="notes.txt", data=b"two now")
+
+    assert response.status_code == 502
+    assert repo.versions[uuid.UUID(first["id"])] == 1
+
+
 def test_upload_needs_a_token(repo):
     assert (
         client.post("/api/files", files={"file": ("a.txt", b"x", "text/plain")}).status_code == 401
@@ -490,7 +524,7 @@ def patch(file_id, body, sub="user-1"):
 
 
 def test_rename_is_audited_and_touches_no_object(repo, monkeypatch):
-    monkeypatch.setattr(files_routes, "minio_client", lambda: pytest.fail("PATCH touched MinIO"))
+    monkeypatch.setattr(files_routes, "s3_client", lambda: pytest.fail("PATCH touched storage"))
     row = seed(repo, name="a.txt")
 
     response = patch(row.id, {"name": " b.txt "})

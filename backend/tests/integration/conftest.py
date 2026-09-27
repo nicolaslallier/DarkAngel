@@ -13,11 +13,11 @@ from app.core import db as db_module
 from app.core.config import get_settings
 
 # Matches docker-compose.test.yml and the CI step. Exporting any of these before
-# the run points the suite at another MinIO instead.
+# the run points the suite at another S3 store instead.
 DEFAULTS = {
-    "DARKANGEL_S3_ENDPOINT": "localhost:9000",
-    "DARKANGEL_S3_ACCESS_KEY": "minioadmin",
-    "DARKANGEL_S3_SECRET_KEY": "minioadmin",
+    "DARKANGEL_S3_ENDPOINT": "localhost:8333",
+    "DARKANGEL_S3_ACCESS_KEY": "s3admin",
+    "DARKANGEL_S3_SECRET_KEY": "s3admin-secret",
     "DARKANGEL_S3_SECURE": "false",
 }
 
@@ -26,10 +26,10 @@ ENV_KEYS = (*DEFAULTS, "DARKANGEL_S3_BUCKET")
 
 
 @pytest.fixture(scope="session", autouse=True)
-def minio_bucket():
-    """Point the app at a throwaway bucket on a real MinIO, and clean it up.
+def s3_bucket():
+    """Point the app at a throwaway bucket on a real SeaweedFS, and clean it up.
 
-    The app never creates its own bucket (`make minio` does, in production), so
+    The app never creates its own bucket (Infra's `make s3-provision` does, in production), so
     the fixture owns one for the length of the session. Everything below the
     snapshot runs inside a `finally` so a skip or a CI-fail — both raised
     before the bucket even exists — still restore the environment and both
@@ -53,25 +53,25 @@ def minio_bucket():
             else:
                 os.environ[key] = value
         get_settings.cache_clear()
-        files.minio_client.cache_clear()
+        files.s3_client.cache_clear()
 
     try:
         for key, value in DEFAULTS.items():
             os.environ.setdefault(key, value)
-        # Unique per run, so two sessions against one MinIO cannot collide.
+        # Unique per run, so two sessions against one store cannot collide.
         os.environ["DARKANGEL_S3_BUCKET"] = f"darkangel-test-{uuid.uuid4().hex[:12]}"
 
         # Both are lru_cached; without this they keep the settings read at import.
         get_settings.cache_clear()
-        files.minio_client.cache_clear()
+        files.s3_client.cache_clear()
 
         settings = get_settings()
-        client = files.minio_client()
+        client = files.s3_client()
 
         try:
             client.list_buckets()
         except Exception as e:
-            reason = f"MinIO unreachable at {settings.s3_endpoint}: {e}"
+            reason = f"S3 store unreachable at {settings.s3_endpoint}: {e}"
             # Skipping is a local convenience. In CI a broken service must go red,
             # never green-by-skip.
             if os.environ.get("CI") == "true":
@@ -79,7 +79,7 @@ def minio_bucket():
             pytest.skip(reason)
 
         client.make_bucket(settings.s3_bucket)
-        # Production enables versioning (provision-minio.sh); the throwaway
+        # Production enables versioning (Infra's s3-provision versioned=1); the throwaway
         # bucket must match, or put_object returns no version_id and the
         # file_versions rows would all record an empty string.
         client.set_bucket_versioning(settings.s3_bucket, VersioningConfig(ENABLED))
@@ -101,11 +101,11 @@ def minio_bucket():
 
 @pytest.fixture
 def store():
-    """Shadow the shared `store` fixture: it swaps in `FakeMinio`, which
+    """Shadow the shared `store` fixture: it swaps in `FakeS3`, which
     would silently defeat this suite's whole point of running against real
-    MinIO. Integration tests must not request it."""
+    SeaweedFS. Integration tests must not request it."""
     pytest.fail(
-        "integration tests run against real MinIO; the FakeMinio `store` "
+        "integration tests run against real SeaweedFS; the FakeS3 `store` "
         "fixture is unit/regression only"
     )
 
@@ -121,7 +121,7 @@ def repo():
 
 
 # --- PostgreSQL -----------------------------------------------------------
-# Same shape as minio_bucket above: default the environment, clear the caches
+# Same shape as s3_bucket above: default the environment, clear the caches
 # that read it, and fail rather than skip when CI is the one running.
 
 PG_DEFAULTS = {
@@ -133,7 +133,7 @@ PG_DEFAULTS = {
 def pg_database():
     """Point the app at the local test Postgres and migrate it to head.
 
-    Ordering against `minio_bucket` does not matter: both fixtures write to
+    Ordering against `s3_bucket` does not matter: both fixtures write to
     os.environ, which is the single source of truth, and both clear
     `get_settings` afterwards. What *does* matter is clearing the two db
     caches -- an engine built before DARKANGEL_DATABASE_URL was set would

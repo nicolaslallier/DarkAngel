@@ -8,9 +8,9 @@ remember and none to forget.
 
 | Suite | Where | What is real | CI job |
 |---|---|---|---|
-| Backend unit | `backend/tests/unit/` (89 tests) | Nothing outside the process. MinIO is `FakeMinio`, the database is `FakeFileRepository`, Keycloak is a fake JWKS. | `backend-unit` |
+| Backend unit | `backend/tests/unit/` (93 tests) | Nothing outside the process. Object storage is `FakeS3`, the database is `FakeFileRepository`, Keycloak is a fake JWKS. | `backend-unit` |
 | Backend regression | `backend/tests/regression/` (27 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
-| Backend integration | `backend/tests/integration/` (65 tests) | A real MinIO in a throwaway bucket, and a real PostgreSQL migrated to head. Auth stays faked. | `backend-integration` |
+| Backend integration | `backend/tests/integration/` (72 tests) | A real SeaweedFS in a throwaway bucket, and a real PostgreSQL migrated to head. Auth stays faked. | `backend-integration` |
 | Frontend unit | `frontend/tests/unit/` | jsdom. `fetch` and `oidc-client-ts` are mocked. | `frontend` |
 | Frontend regression | `frontend/tests/regression/` | Same as frontend unit. | `frontend` |
 
@@ -36,16 +36,16 @@ suite.
 make test              # every suite; integration skips if the services are down
 make test-unit         # backend unit only, no services needed
 make test-regression   # backend regression only
-make test-integration  # backend integration; needs MinIO + Postgres
+make test-integration  # backend integration; needs SeaweedFS + Postgres
 make test-frontend     # vitest
 make coverage          # both sides; the backend fails under 80%
 ```
 
-Integration needs a MinIO on `localhost:9000` and a PostgreSQL on
+Integration needs a SeaweedFS on `localhost:8333` and a PostgreSQL on
 `localhost:5432`:
 
 ```sh
-make services-test-up   # docker-compose.test.yml: MinIO + Postgres
+make services-test-up   # docker-compose.test.yml: SeaweedFS + Postgres
 make test-integration
 make services-test-down # also drops their data
 ```
@@ -71,13 +71,13 @@ Every backend run ends with up to three blocks, printed by
 --------------------------------- modules run ----------------------------------
   tests/unit/test_auth.py                               1 test
   tests/unit/test_db.py                                 4 tests
-  tests/unit/test_files.py                             65 tests
+  tests/unit/test_files.py                             69 tests
   tests/unit/test_folders.py                            18 tests
   tests/unit/test_health.py                              1 test
 ------------------------------ skipped at runtime ------------------------------
-   65 tests  Skipped: MinIO unreachable at localhost:9000: HTTPConnectionPool …
+   72 tests  Skipped: S3 store unreachable at localhost:8333: HTTPConnectionPool …
 ------------------- deselected by -m (not run in this pass) --------------------
-  integration                                          65 tests   -> make test-integration
+  integration                                          72 tests   -> make test-integration
   regression                                           27 tests   -> make test-regression
 ```
 
@@ -85,7 +85,7 @@ Every backend run ends with up to three blocks, printed by
   many of its tests did. This is the answer to "what did this pass cover".
 - **skipped at runtime** — collected but skipped, one line per distinct
   *reason*, not per test: every integration test skips over the same
-  unreachable MinIO, and that is one line. `-rs` prints them per test.
+  unreachable S3 store, and that is one line. `-rs` prints them per test.
 - **deselected by -m** — what the marker filter removed, grouped by suite,
   each with the target that would run it. pytest's own summary gives only a
   total ("23 deselected"), which looks the same whether one suite was left out
@@ -116,24 +116,25 @@ touch the network or a service.
 ## The integration services
 
 Two session fixtures in `backend/tests/integration/conftest.py` own the real
-services: `minio_bucket` and `pg_database`. They share a shape — default the
+services: `s3_bucket` and `pg_database`. They share a shape — default the
 environment the app reads, clear the `lru_cache`s that already read it, and
 fail rather than skip when `CI=true`.
 
 ### The bucket
 
-The app does not create its own bucket — in production `make minio` does. So
-`backend/tests/integration/conftest.py` creates one per session, named
+The app does not create its own bucket — in production Infra's
+`make s3-provision` does. So `backend/tests/integration/conftest.py` creates one
+per session, named
 `darkangel-test-<random>`, and removes every object and the bucket itself in
 teardown, even after a failure.
 
 It points the app at that bucket by setting `DARKANGEL_S3_*` in the environment
 and then clearing the `lru_cache` on both `get_settings()` and
-`files.minio_client()` — without that, the app keeps whatever it read at
+`files.s3_client()` — without that, the app keeps whatever it read at
 import.
 
 Exporting any `DARKANGEL_S3_*` variable before the run targets a different
-MinIO instead of the compose one (the fixture only fills in values that are
+SeaweedFS instead of the compose one (the fixture only fills in values that are
 still unset).
 
 ### The database
@@ -154,7 +155,7 @@ As with the bucket, exporting `DARKANGEL_DATABASE_URL` before the run targets
 a different database instead of the compose one.
 
 The suite also shadows the shared `store` and `repo` fixtures with ones that
-fail on sight: an integration test that asked for `FakeMinio` or
+fail on sight: an integration test that asked for `FakeS3` or
 `FakeFileRepository` would quietly stop being an integration test.
 
 **An unreachable service skips locally and fails in CI.** The switch is the
@@ -184,8 +185,8 @@ someone reading the test in two years knows why it exists.
 Move the check out of wherever it was; never leave a copy behind. A regression
 check pins one fixed bug and lives in exactly one suite — never copy it into a
 second. That is different from the unit/integration layering: the same
-scenario may legitimately appear at both layers, once against `FakeMinio` and
-once against a real MinIO, because each proves something the other cannot.
+scenario may legitimately appear at both layers, once against `FakeS3` and
+once against a real SeaweedFS, because each proves something the other cannot.
 
 Before trusting a new regression test, reintroduce the bug and watch it fail.
 
@@ -207,7 +208,7 @@ which is the whole point: an API change is visible in review instead of silent.
 ## CI jobs
 
 `.github/workflows/ci.yml` runs three jobs in parallel: `backend-unit` (lint +
-unit + regression + coverage gate), `backend-integration` (starts a real MinIO
+unit + regression + coverage gate), `backend-integration` (starts a real SeaweedFS
 container and a `postgres:16-alpine` service container, then the integration
 suite), and `frontend` (vitest with coverage,
 then `npm run build`, which type-checks with `vue-tsc` first). Each uploads its
@@ -226,8 +227,8 @@ JUnit XML as a workflow artifact — `backend-unit` also uploads `coverage.xml`
   contributor whose code is check-clean but not format-clean is caught here.
 - **`backend-unit` red on coverage** — reads
   `FAIL Required test coverage of 80% not reached. Total coverage: NN.NN%`.
-- **`backend-integration` red with `MinIO never became ready`** — the service
-  did not come up in time; the job prints `docker logs minio` on failure.
+- **`backend-integration` red with `SeaweedFS never became ready`** — the service
+  did not come up in time; the job prints `docker logs s3` on failure.
 - **`backend-integration` red on a test** — reproduce with
   `make services-test-up && make test-integration`.
 - **`frontend` red in the build step** — the tests are type-checked too
@@ -257,7 +258,7 @@ They are gated instead by `backend-integration`: 22 tests in
 repository and 83% of the backfill script — the single repository miss is the
 `file_repository` DI factory, which they bypass by constructing
 `FileRepository` directly. The factory is covered by the rest of the suite
-(`test_files_minio.py` drives the real routes), so `-m integration` as a whole,
+(`test_files_s3.py` drives the real routes), so `-m integration` as a whole,
 and `make coverage-backend`, both report 100% for the repository.
 
 The threshold itself was not lowered and no test was weakened. With the

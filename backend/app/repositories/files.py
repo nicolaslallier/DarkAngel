@@ -42,7 +42,7 @@ class FileRepository:
     """Every query is scoped to one owner, and `owner_sub` is always the first
     argument so that omitting it is a TypeError rather than a data leak.
 
-    This is the only thing separating two users now that the MinIO key prefix
+    This is the only thing separating two users now that the object-key prefix
     no longer does it structurally -- see docs/files-feature.md risk R-1.
 
     One deliberate exception: `sweep_pending` takes no `owner_sub` and deletes
@@ -120,7 +120,7 @@ class FileRepository:
     def used_bytes(self, owner_sub: str) -> int:
         # Every row of this owner's, with no `deleted_at` filter. BR-9: trashed
         # files still count until purged -- a soft delete marks the row and
-        # leaves the bytes in MinIO, and Phase 1 has no purge, so excluding
+        # leaves the bytes in object storage, and Phase 1 has no purge, so excluding
         # them would let one account delete-and-reupload without bound.
         # Pending rows count too: the pending insert is the quota reservation.
         statement = select(func.coalesce(func.sum(File.size_bytes), 0)).where(
@@ -145,7 +145,7 @@ class FileRepository:
         The advisory lock serialises concurrent uploads by the same owner, so
         two requests cannot both read an under-quota total and both insert. It
         is transaction-scoped and released at the commit below -- long before
-        the caller starts streaming bytes to MinIO.
+        the caller starts streaming bytes to object storage.
         """
         self.db.execute(select(func.pg_advisory_xact_lock(func.hashtext(owner_sub))))
 
@@ -239,7 +239,7 @@ class FileRepository:
 
     def sweep_pending(self, older_than_seconds: int = 3600) -> list[str]:
         """Drop reservations whose upload never finished, returning the object
-        keys the caller should try to delete from MinIO.
+        keys the caller should try to delete from object storage.
 
         Deliberately global: unlike every other method here this takes no
         `owner_sub` and sweeps all owners, because a janitor that only tidied

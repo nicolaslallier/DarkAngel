@@ -39,7 +39,7 @@ DIST ?= dist
         test test-backend test-unit test-integration test-regression test-frontend \
         snapshot services-test-up services-test-down migrate coverage coverage-backend coverage-frontend \
         build build-backend build-frontend preview \
-        up pull down delete webhook stack-selftest deploy keycloak-client minio postgres \
+        up pull down delete webhook stack-selftest deploy keycloak-client postgres files-reset \
         runner-env check-runner-env runner-up runner-down runner-restart \
         runner-logs runner-status runner-pull runner-shell \
         up-local down-local restart ps logs \
@@ -151,7 +151,7 @@ test-unit: $(PY) ## Backend unit tests (everything faked, no services needed)
 test-regression: $(PY) ## Backend regression tests (pinned bugs + API contract)
 	cd $(BACKEND) && .venv/bin/python -m pytest -m regression $(ARGS)
 
-test-integration: $(PY) ## Backend integration tests (needs MinIO + Postgres; `make services-test-up`)
+test-integration: $(PY) ## Backend integration tests (needs S3 + Postgres; `make services-test-up`)
 	cd $(BACKEND) && .venv/bin/python -m pytest -m integration $(ARGS)
 
 test-frontend: ## Frontend unit, component and regression tests (vitest)
@@ -160,7 +160,7 @@ test-frontend: ## Frontend unit, component and regression tests (vitest)
 coverage-frontend: ## Frontend coverage report (text + lcov)
 	cd $(FRONTEND) && $(NPM) run test:coverage
 
-services-test-up: ## Start the services the integration suite runs against (MinIO + Postgres)
+services-test-up: ## Start the services the integration suite runs against (SeaweedFS + Postgres)
 	docker compose -f docker-compose.test.yml up -d --wait
 
 services-test-down: ## Stop those services and drop their data
@@ -251,11 +251,11 @@ stack-selftest: ## Check portainer-stack.sh's helpers without calling Portainer
 keycloak-client: ## Create/update the darkangel-spa client in Keycloak realm ea (INFRA_ENV, KC_CACERT)
 	@scripts/provision-keycloak-client.sh
 
-minio: ## Create/update the Infra MinIO bucket + user home files live in (INFRA_ENV, .portainer.env)
-	@scripts/provision-minio.sh
-
 postgres: ## Create/update the Infra PostgreSQL database + role the metadata lives in (PGADMIN_URL)
 	@scripts/provision-postgres.sh
+
+files-reset: ## One-time, before the first SeaweedFS deploy: empty files + file_versions (PGADMIN_URL, CONFIRM=darkangel)
+	@scripts/files-reset.sh
 
 # The webhook only redeploys; stopping the stack is `make down`, and creating
 # one is `make up`. deploy.yml prefers the API path (PORTAINER_API_KEY), which

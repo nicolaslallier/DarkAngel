@@ -4,14 +4,14 @@ Status: draft for review · Target: `darkangel-api` + `darkangel-spa` · Date: 2
 
 ## 1. Context and objective
 
-DarkAngel already lets a signed-in user push files into the Infra MinIO and pull
+DarkAngel already lets a signed-in user push files into the Infra SeaweedFS and pull
 them back. What it does not have is any *knowledge* about those files: the list
 is whatever `list_objects` returns, so a file is a name, a size and a timestamp,
 and nothing else. There is no way to describe a file, organise it, find it among
 a hundred others, see what it looked like last week, or learn who deleted it.
 
 The objective is to make the backend the owner of file metadata — held in the
-Infra PostgreSQL — while MinIO keeps doing what it is good at: storing bytes.
+Infra PostgreSQL — while SeaweedFS keeps doing what it is good at: storing bytes.
 The SPA grows from a single upload-and-list table into a real file manager.
 
 The user-facing goal, in one sentence: **a user can organise, describe, search,
@@ -41,8 +41,8 @@ name/size/modified, and per-row Download and Delete buttons. Download fetches a
 blob and clicks a throwaway `<a>`, because the API needs a bearer token that a
 plain `href` cannot carry. The store reloads the whole list after every action.
 
-**Infra** — MinIO bucket `darkangel-files`, versioning enabled
-(`scripts/provision-minio.sh:51`), reached at `minio:9000` over `infra-net`.
+**Infra** — SeaweedFS bucket `darkangel-files`, versioning enabled
+(Infra's `make s3-provision ... versioned=1`), reached at `s3:8333` over `infra-net`.
 There is **no PostgreSQL anywhere in this repository** — no driver, no ORM, no
 migrations, no service in `deploy/portainer-stack.yml`. A shared Infra Postgres
 exists; DarkAngel has never connected to it.
@@ -56,7 +56,7 @@ In scope, as agreed:
 - **Versions and audit**: full history, restore an old version, undelete a file,
   and an append-only log of who did what.
 - **Postgres as the index**: the file list is a database query, not a bucket
-  listing. MinIO keys become UUIDs.
+  listing. SeaweedFS keys become UUIDs.
 - **Limits**: a maximum file size, a per-user storage quota, and a content-type
   policy.
 - **GUI**: drag & drop with upload progress; search, filter and sort; inline
@@ -70,11 +70,11 @@ Explicitly *not* in scope — see §14.
 
 ```
 Browser ──HTTPS──▶ Infra NGINX ──/api/──▶ darkangel-api ──┬──▶ PostgreSQL  (metadata, the index)
-                                                          └──▶ MinIO       (bytes, versions)
+                                                          └──▶ SeaweedFS   (bytes, versions)
 ```
 
-Postgres answers *what files exist and what they are*. MinIO answers *what is
-in them*. Every listing, search and sort is a SQL query; MinIO is touched only
+Postgres answers *what files exist and what they are*. SeaweedFS answers *what is
+in them*. Every listing, search and sort is a SQL query; SeaweedFS is touched only
 to move bytes.
 
 ### 4.2 Object keys
@@ -156,7 +156,7 @@ attributes (colour, rename-everywhere), which is not asked for.
 | `created_at` | `timestamptz` NOT NULL | |
 | `created_by` | `text` NOT NULL | Keycloak `sub` |
 
-MinIO already keeps every version; this table is the readable index over them.
+SeaweedFS already keeps every version; this table is the readable index over them.
 
 **`audit_log`**
 
@@ -175,7 +175,7 @@ grants the application role `INSERT`/`SELECT` on this table and nothing else.
 
 ### 4.4 Write consistency
 
-MinIO and Postgres cannot share a transaction, so uploads are ordered
+SeaweedFS and Postgres cannot share a transaction, so uploads are ordered
 **row first, bytes second**:
 
 1. `INSERT INTO files (…, status='pending')` and commit. The `id` is the key.
@@ -223,7 +223,7 @@ regenerated as part of Phase 1.
 | `DELETE` | `/api/folders/{id}` | Delete; `409` unless empty or `?recursive=true` |
 
 Every route keeps taking the `Claims` dependency. Every query is filtered by
-`owner_sub = claims['sub']` — the prefix isolation that MinIO gave for free
+`owner_sub = claims['sub']` — the prefix isolation that SeaweedFS gave for free
 becomes a `WHERE` clause the repository layer must never omit. A missing or
 foreign id returns `404`, not `403`, so the API does not confirm that another
 user's file exists.
@@ -241,19 +241,19 @@ user's file exists.
   no longer a path.
 - **BR-4 — Folder names** follow BR-3 and are unique among live siblings.
 - **BR-5 — No cycles.** A folder cannot be moved into itself or a descendant.
-- **BR-6 — Delete is soft.** `DELETE` sets `deleted_at`; bytes stay in MinIO.
+- **BR-6 — Delete is soft.** `DELETE` sets `deleted_at`; bytes stay in SeaweedFS.
   Trashed items are excluded from normal listings and from search, and are
   visible only via `?trashed=true`.
 - **BR-7 — Deleting a folder** with live children returns `409` unless
   `?recursive=true`, which soft-deletes the whole subtree in one transaction.
-- **BR-8 — Restore.** Restoring version `n` server-side-copies that MinIO
+- **BR-8 — Restore.** Restoring version `n` server-side-copies that SeaweedFS
   version back to the key, producing a *new* highest version. History is never
   rewritten and nothing is lost.
 - **BR-9 — Quota.** An upload is refused with `413` if it would push the owner's
   total live `size_bytes` over the quota. Trashed files still count until purged,
   and so do `pending` rows: the pending insert *is* the quota reservation, which
   is why the check and the insert share one short transaction and the advisory
-  lock is released before the upload to MinIO begins.
+  lock is released before the upload to SeaweedFS begins.
 - **BR-10 — Size.** An upload over the maximum file size is refused with `413`.
 - **BR-11 — Content type.** Uploads are screened against the configured policy
   and refused with `415`. Independently, only an allow-list of types may ever be
@@ -268,7 +268,7 @@ user's file exists.
 **UC-1 — Upload (nominal).** The user drags three files onto the file list
 while inside folder *Invoices*. For each: the SPA `POST`s multipart with
 `folder_id`, showing a progress bar. The backend validates name, size, quota and
-type, inserts a `pending` row, streams to MinIO, records version 1, flips to
+type, inserts a `pending` row, streams to SeaweedFS, records version 1, flips to
 `ready`, writes an audit entry, and returns the file. The row appears in the
 table as each upload settles.
 
@@ -292,7 +292,7 @@ allow-list.
 
 **UC-6 — Recover an old version.** The user opens the detail panel, sees three
 versions with dates and authors, and picks version 1 → *Restore*. The backend
-copies that MinIO version back to the key as version 4 and audits the action.
+copies that SeaweedFS version back to the key as version 4 and audits the action.
 
 **UC-7 — Recover a deleted file.** The user switches to *Trash*, finds the file,
 and clicks *Restore*. `deleted_at` is cleared; the file reappears in its folder.
@@ -309,17 +309,17 @@ alone.
 | Case | Handling |
 |---|---|
 | Upload aborted mid-stream | Client disconnect raises; the `pending` row is left and swept |
-| MinIO down during upload | `502`, `pending` row swept; nothing appears in the list |
-| MinIO down during list | List still works — it is a SQL query. Only content operations fail |
+| SeaweedFS down during upload | `502`, `pending` row swept; nothing appears in the list |
+| SeaweedFS down during list | List still works — it is a SQL query. Only content operations fail |
 | Postgres down | `503` on every file route; a plain health check stays green |
 | Stale `pending` rows | Swept: `DELETE FROM files WHERE status='pending' AND created_at < now() - interval '1 hour'`, and the object deleted best-effort |
-| Orphan objects in MinIO | A `make reconcile` script diffs bucket against table in both directions; reported, not auto-deleted |
+| Orphan objects in SeaweedFS | A `make reconcile` script diffs bucket against table in both directions; reported, not auto-deleted |
 | Two concurrent uploads racing the quota | Both can pass a naive check. Guarded by `pg_advisory_xact_lock(hashtext(owner_sub))` around check-and-insert |
 | Empty file (0 bytes) | Allowed; it is a legitimate file |
 | Upload with no filename | `422` |
 | Folder delete, non-empty | `409` with a count of children, unless `?recursive=true` |
 | Folder move into own descendant | `409`, detected by recursive CTE |
-| Restore a version whose MinIO version was lifecycle-expired | `410`; the row is marked unavailable rather than crashing |
+| Restore a version whose SeaweedFS version was lifecycle-expired | `410`; the row is marked unavailable rather than crashing |
 | Same file `PATCH`ed by two tabs | Last write wins. Optimistic locking is deliberately not added (§13) |
 | Very long search term / huge `limit` | `limit` capped at 200 server-side; `q` capped at 200 characters |
 
@@ -330,7 +330,7 @@ over a tiny set of rows.
 
 ## 9. Security
 
-- **Isolation** moves from a MinIO key prefix — which was structurally
+- **Isolation** moves from a SeaweedFS key prefix — which was structurally
   impossible to get wrong — to a `WHERE owner_sub = …` clause that a developer
   can forget. Mitigation: all access goes through one repository module whose
   every function takes the `sub` as its first argument, and a regression test
@@ -347,11 +347,11 @@ over a tiny set of rows.
   allow-listed types only; the policy check in BR-11 screens on extension and
   declared type, which stops accidents, not attackers. Byte sniffing is listed
   as an open question (§13).
-- **No presigned URLs.** `minio:9000` is on `infra-net` and the Infra NGINX
+- **No presigned URLs.** `s3:8333` is on `infra-net` and the Infra NGINX
   proxies only `/api/`, so a presigned link is unreachable from a browser. All
   content flows through the backend. This is a constraint, but it also means
   every byte served is authenticated and auditable.
-- **Database credentials** follow the MinIO pattern: a scoped role, secret
+- **Database credentials** follow the object-storage pattern: a scoped role, secret
   supplied as a Portainer stack variable, never committed.
 
 ## 10. Impacts
@@ -386,14 +386,14 @@ over a tiny set of rows.
 
 **Infra**
 
-- `scripts/provision-postgres.sh` + `make postgres`, mirroring
-  `provision-minio.sh`: create database and scoped role, idempotently.
-- **`scripts/provision-minio.sh` must be amended.** The policy it attaches
-  (lines 53–70) grants only `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`,
-  `s3:DeleteObject`. Version history additionally needs
-  `s3:ListBucketVersions`, `s3:GetObjectVersion` and `s3:DeleteObjectVersion`.
-  Without them Phase 3 fails with `AccessDenied` against the real MinIO even
-  though the versions exist. `make minio` must be re-run after the change.
+- `scripts/provision-postgres.sh` + `make postgres`: create database and
+  scoped role, idempotently.
+- **Version access on the Infra SeaweedFS.** Infra's `make s3-provision` gives
+  the `darkangel` identity `Read,Write,List,Tagging` on the bucket. Reading an
+  old version by id under `Read` was confirmed on SeaweedFS 4.47 (2026-09-27).
+  Listing versions and deleting one version were not: confirm both as the
+  `darkangel` identity before Phase 3, or it fails with `AccessDenied` against
+  the real store even though the versions exist.
 - `deploy/portainer-stack.yml`: `DARKANGEL_DATABASE_URL` and a
   `POSTGRES_PASSWORD` stack variable; `.portainer.env.example` updated.
 - Migrations run via `alembic upgrade head` in the API container's entrypoint.
@@ -401,7 +401,7 @@ over a tiny set of rows.
 
 **Testing and CI** — per `docs/testing.md`
 
-- `docker-compose.test.yml` gains a `postgres` service next to `minio`.
+- `docker-compose.test.yml` gains a `postgres` service next to `s3`.
 - The `integration` job in `.github/workflows/ci.yml` gains a Postgres service
   container.
 - `unit` tests cannot use SQLite: the schema relies on `uuid`, `text[]`, `jsonb`
@@ -422,7 +422,7 @@ over a tiny set of rows.
    (version 1, `created_by` = the owner sub), delete the old key.
 3. Idempotent: skip any key already present in `files.object_key`.
 
-Accepted cost, confirmed: the copy starts a fresh version chain, so MinIO
+Accepted cost, confirmed: the copy starts a fresh version chain, so SeaweedFS
 version history predating the migration is not carried into the new keys. The
 old versions remain under the old keys until step 2's delete, which is why the
 mirror in step 1 is not optional.
@@ -443,7 +443,7 @@ description, tags, search/filter/sort with pagination. SPA gains the folder
 tree, the detail panel with inline editing, and the search bar.
 
 **Phase 3 — History and trash.** Version list, version restore, soft delete
-with a Trash view and undelete, audit trail visible per file. Requires the MinIO
+with a Trash view and undelete, audit trail visible per file. Requires the SeaweedFS
 policy change from §10 first.
 
 **Phase 4 — Polish.** Drag & drop with per-file progress bars, in-browser
@@ -457,7 +457,7 @@ preview for the allow-listed types, quota indicator.
 Given a signed-in user with no files
 When they upload "report.pdf" of 2 MB
 Then the response is 201 with an id, and GET /api/files lists exactly that file
-And the MinIO bucket holds one object keyed "<their sub>/<that id>"
+And the SeaweedFS bucket holds one object keyed "<their sub>/<that id>"
 And the audit log holds one "upload" row naming them as actor
 
 Given user A owns a file
@@ -472,7 +472,7 @@ Given a user whose live files already total the quota
 When they upload any non-empty file
 Then the response is 413 naming used and available bytes
 
-Given MinIO is unreachable
+Given SeaweedFS is unreachable
 When a user uploads a file
 Then the response is 502
 And GET /api/files still succeeds and does not list the failed upload
@@ -487,7 +487,7 @@ Then each object has exactly one row, keyed by UUID, and the second run changes 
 ```gherkin
 Given a folder "Invoices" containing a file
 When the user renames the folder to "Bills"
-Then the response is 200 and no MinIO object has been read or written
+Then the response is 200 and no SeaweedFS object has been read or written
 
 Given a folder tree A > B
 When the user moves A into B
@@ -556,7 +556,7 @@ Then it is served as an attachment with nosniff, never inline
 3. **Trash retention.** Do trashed files purge automatically after N days, or
    only on an explicit "empty trash"? They count against quota until purged
    either way, which users find surprising if never explained.
-4. **Version retention.** Unbounded history grows MinIO forever. Cap at N
+4. **Version retention.** Unbounded history grows SeaweedFS forever. Cap at N
    versions per file, or an age-based lifecycle rule on the bucket?
 5. **Download auditing volume.** Auditing every download makes `audit_log` the
    fastest-growing table by far. Keep it, sample it, or drop download from the
@@ -598,4 +598,4 @@ Then it is served as an attachment with nosniff, never inline
 - Resumable or chunked uploads; an interrupted upload restarts.
 - Bulk operations beyond multi-file upload — no multi-select move or delete.
 - Cross-device sync clients, WebDAV, or any non-browser access.
-- Per-file encryption at rest beyond whatever MinIO already provides.
+- Per-file encryption at rest beyond whatever SeaweedFS already provides.

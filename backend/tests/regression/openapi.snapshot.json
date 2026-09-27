@@ -687,7 +687,7 @@
         ]
       },
       "patch": {
-        "description": "Rename, describe, retag and move in one call. Metadata only: no MinIO\ncall, because the object key is the id.",
+        "description": "Rename, describe, retag and move in one call. Metadata only: no storage\ncall, because the object key is the id.",
         "operationId": "update_file_api_files__file_id__patch",
         "parameters": [
           {

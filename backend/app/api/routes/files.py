@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from collections.abc import Iterator
@@ -18,6 +19,8 @@ from app.core.config import get_settings
 from app.models.files import File, Folder
 from app.repositories.files import FileRepo, NameTaken, Order, QuotaExceeded, Sort
 from app.repositories.folders import FolderRepo, FolderRepository
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -47,11 +50,18 @@ class FileInfo(BaseModel):
 
 
 @lru_cache
-def minio_client() -> Minio:
+def s3_client() -> Minio:
     s = get_settings()
     return Minio(
         s.s3_endpoint, access_key=s.s3_access_key, secret_key=s.s3_secret_key, secure=s.s3_secure
     )
+
+
+def _unversioned() -> HTTPException:
+    """Every write must come back with a version id: the version table indexes
+    them and restore (BR-8) replays them. An unversioned bucket returns none."""
+    log.error("bucket %s returned no version id; is versioning enabled?", get_settings().s3_bucket)
+    return HTTPException(status.HTTP_502_BAD_GATEWAY, "Storage is unavailable")
 
 
 def _sweep(repo: FileRepo) -> None:
@@ -59,14 +69,14 @@ def _sweep(repo: FileRepo) -> None:
     have left behind."""
     bucket = get_settings().s3_bucket
     for key in repo.sweep_pending():
-        # Exception, not S3Error: an unreachable MinIO raises urllib3's
+        # Exception, not S3Error: an unreachable store raises urllib3's
         # MaxRetryError, which is no relation to S3Error. The sweep is
         # opportunistic cleanup riding along on a listing that needs no object
         # storage at all, so it must never be what fails that listing (§12).
         # ponytail: sweep_pending commits the row DELETEs before these removes,
         # so an outage here orphans the bytes; deleting the object first would close it.
         with suppress(Exception):
-            minio_client().remove_object(bucket, key)
+            s3_client().remove_object(bucket, key)
 
 
 @router.get("", response_model=list[FileInfo])
@@ -188,7 +198,7 @@ def upload_file(
         ) from e
 
     try:
-        written = minio_client().put_object(
+        written = s3_client().put_object(
             settings.s3_bucket, row.object_key, file.file, length=size, content_type=content_type
         )
     except S3Error as e:
@@ -197,7 +207,12 @@ def upload_file(
         repo.abandon(row)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Storage is unavailable") from e
 
-    repo.finalize(row, s3_version_id=written.version_id or "", actor_sub=claims["sub"])
+    if not written.version_id:
+        repo.abandon(row)
+        with suppress(Exception):
+            s3_client().remove_object(settings.s3_bucket, row.object_key)
+        raise _unversioned()
+    repo.finalize(row, s3_version_id=written.version_id, actor_sub=claims["sub"])
     repo.audit(claims["sub"], "upload", "file", row.id, {"name": name, "size": size})
     response.status_code = status.HTTP_201_CREATED
     return FileInfo.of(row)
@@ -225,7 +240,7 @@ def _append_version(
         )
 
     try:
-        written = minio_client().put_object(
+        written = s3_client().put_object(
             settings.s3_bucket,
             existing.object_key,
             file.file,
@@ -235,9 +250,13 @@ def _append_version(
     except S3Error as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Storage is unavailable") from e
 
+    if not written.version_id:
+        # The previous bytes are already overwritten on an unversioned bucket;
+        # failing loudly is all that is left to do.
+        raise _unversioned()
     repo.add_version(
         existing,
-        s3_version_id=written.version_id or "",
+        s3_version_id=written.version_id,
         size_bytes=size,
         content_type=content_type,
         actor_sub=claims["sub"],
@@ -288,7 +307,7 @@ def _validated_tags(raw: list[str]) -> list[str]:
 def update_file(
     claims: Claims, repo: FileRepo, folders: FolderRepo, file_id: uuid.UUID, body: FilePatch
 ) -> FileInfo:
-    """Rename, describe, retag and move in one call. Metadata only: no MinIO
+    """Rename, describe, retag and move in one call. Metadata only: no storage
     call, because the object key is the id."""
     sub = claims["sub"]
     row = repo.get(sub, file_id)
@@ -368,7 +387,7 @@ def download_file(
     served_type = row.content_type if renderable else "application/octet-stream"
 
     try:
-        obj = minio_client().get_object(settings.s3_bucket, row.object_key)
+        obj = s3_client().get_object(settings.s3_bucket, row.object_key)
     except S3Error as e:
         if e.code == "NoSuchKey":
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No such file") from e
