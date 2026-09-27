@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # the password arrives as a Portainer stack variable, never in git.
     database_url: str = "postgresql+psycopg://darkangel:@postgres:5432/darkangel"
 
+    # Post-upload AI summary by an Ollama server (`/api/generate`). Empty URL =
+    # no summaries. The stack points it at the LAN Ollama the AI repo uses.
+    ollama_url: str = ""
+    ollama_model: str = "qwen3.8:27b-mlx"
+
     # Upload guards. Both are refused with 413: one file over the first, or a
     # file that would push the owner's total over the second.
     max_upload_bytes: int = 5 * 1024 * 1024 * 1024

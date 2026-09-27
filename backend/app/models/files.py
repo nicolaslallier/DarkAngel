@@ -40,6 +40,9 @@ class File(Base):
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Written by app.summary after an upload, never by the owner: null until
+    # it lands, and for good when the file is not text or Ollama failed.
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default="{}")
     content_type: Mapped[str] = mapped_column(Text, nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)

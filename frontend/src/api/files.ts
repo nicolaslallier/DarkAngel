@@ -9,6 +9,8 @@ export interface HomeFile {
   folder_id: string | null
   description: string | null
   tags: string[]
+  /** AI summary; lands after the upload returns, null until then (and for binaries). */
+  summary: string | null
 }
 
 export type Sort = 'name' | 'size' | 'updated_at'

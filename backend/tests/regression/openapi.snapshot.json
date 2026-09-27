@@ -81,6 +81,17 @@
             "title": "Size",
             "type": "integer"
           },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
           "tags": {
             "items": {
               "type": "string"
@@ -97,7 +108,8 @@
           "modified",
           "folder_id",
           "description",
-          "tags"
+          "tags",
+          "summary"
         ],
         "title": "FileInfo",
         "type": "object"

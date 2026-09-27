@@ -64,6 +64,7 @@ def test_list_returns_the_owners_ready_files(repo):
             "folder_id": None,
             "description": None,
             "tags": [],
+            "summary": None,
         }
     ]
 

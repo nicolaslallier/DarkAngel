@@ -8,12 +8,22 @@ from functools import lru_cache
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from minio import Minio
 from minio.error import S3Error
 from pydantic import BaseModel, Field
 
+from app import summary
 from app.core.auth import Claims
 from app.core.config import get_settings
 from app.models.files import File, Folder
@@ -34,6 +44,7 @@ class FileInfo(BaseModel):
     folder_id: uuid.UUID | None
     description: str | None
     tags: list[str]
+    summary: str | None
 
     @classmethod
     def of(cls, row: File) -> "FileInfo":
@@ -46,6 +57,7 @@ class FileInfo(BaseModel):
             folder_id=row.folder_id,
             description=row.description,
             tags=row.tags,
+            summary=row.summary,
         )
 
 
@@ -150,6 +162,16 @@ def _measure(stream) -> int:
     return size
 
 
+def _queue_summary(background: BackgroundTasks, owner_sub: str, row: File, file: UploadFile):
+    """After the response: Ollama can take a minute, the upload must not.
+    The head is read now, while the upload's spooled file is still open."""
+    if not get_settings().ollama_url:
+        return
+    file.file.seek(0)
+    head = file.file.read(summary.HEAD_BYTES)
+    background.add_task(summary.summarize, owner_sub, row.id, row.name, head)
+
+
 @router.post("", response_model=FileInfo, responses={201: {"model": FileInfo}})
 def upload_file(
     claims: Claims,
@@ -157,6 +179,7 @@ def upload_file(
     folders: FolderRepo,
     file: UploadFile,
     response: Response,
+    background: BackgroundTasks,
     folder_id: Annotated[uuid.UUID | None, Form()] = None,
 ) -> FileInfo:
     settings = get_settings()
@@ -180,7 +203,9 @@ def upload_file(
 
     existing = repo.find_by_name(claims["sub"], name, folder_id)
     if existing is not None:
-        return _append_version(claims, repo, existing, file, size, content_type)
+        info = _append_version(claims, repo, existing, file, size, content_type)
+        _queue_summary(background, claims["sub"], existing, file)
+        return info
 
     try:
         row = repo.reserve(
@@ -214,6 +239,7 @@ def upload_file(
         raise _unversioned()
     repo.finalize(row, s3_version_id=written.version_id, actor_sub=claims["sub"])
     repo.audit(claims["sub"], "upload", "file", row.id, {"name": name, "size": size})
+    _queue_summary(background, claims["sub"], row, file)
     response.status_code = status.HTTP_201_CREATED
     return FileInfo.of(row)
 

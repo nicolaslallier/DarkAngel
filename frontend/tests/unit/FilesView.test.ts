@@ -40,6 +40,7 @@ function aFile(overrides: Partial<HomeFile> = {}): HomeFile {
     folder_id: null,
     description: null,
     tags: [],
+    summary: null,
     ...overrides,
   }
 }
@@ -84,6 +85,18 @@ it('lists what the API returns, with a human-readable size', async () => {
   const cells = wrapper.findAll('tbody td').map((c) => c.text())
   expect(cells[0]).toBe('bail été.txt')
   expect(cells[2]).toBe('2.0 KB')
+})
+
+it('shows the AI summary under the file name, and nothing while there is none', async () => {
+  vi.mocked(listFiles).mockResolvedValue([
+    aFile({ name: 'list.txt', summary: 'A shopping list.' }),
+    aFile({ id: '22222222-2222-2222-2222-222222222222', name: 'photo.png' }),
+  ])
+
+  const { wrapper } = await render()
+
+  const summaries = wrapper.findAll('.summary').map((p) => p.text())
+  expect(summaries).toEqual(['A shopping list.'])
 })
 
 it('browses a folder: breadcrumb, then subfolders before files', async () => {

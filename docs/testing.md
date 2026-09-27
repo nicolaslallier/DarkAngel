@@ -8,13 +8,13 @@ remember and none to forget.
 
 | Suite | Where | What is real | CI job |
 |---|---|---|---|
-| Backend unit | `backend/tests/unit/` (93 tests) | Nothing outside the process. Object storage is `FakeS3`, the database is `FakeFileRepository`, Keycloak is a fake JWKS. | `backend-unit` |
+| Backend unit | `backend/tests/unit/` (103 tests) | Nothing outside the process. Object storage is `FakeS3`, the database is `FakeFileRepository`, Keycloak is a fake JWKS. | `backend-unit` |
 | Backend regression | `backend/tests/regression/` (27 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
-| Backend integration | `backend/tests/integration/` (72 tests) | A real SeaweedFS in a throwaway bucket, and a real PostgreSQL migrated to head. Auth stays faked. | `backend-integration` |
+| Backend integration | `backend/tests/integration/` (73 tests) | A real SeaweedFS in a throwaway bucket, and a real PostgreSQL migrated to head. Auth stays faked. | `backend-integration` |
 | Frontend unit | `frontend/tests/unit/` | jsdom. `fetch` and `oidc-client-ts` are mocked. | `frontend` |
 | Frontend regression | `frontend/tests/regression/` | Same as frontend unit. | `frontend` |
 
-Frontend unit + regression together are 37 tests across 8 files (Vitest 5,
+Frontend unit + regression together are 73 tests across 10 files (Vitest 5,
 `frontend/vite.config.ts`'s `test` block).
 
 Route logic is unit-tested against `FakeFileRepository` and the real SQL behind

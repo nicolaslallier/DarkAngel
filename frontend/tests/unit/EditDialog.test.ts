@@ -43,6 +43,7 @@ const file: HomeFile = {
   folder_id: 'a',
   description: null,
   tags: ['tax', '2026'],
+  summary: null,
 }
 
 function render(props: { file?: HomeFile; folder?: Folder; parentId?: string | null }) {

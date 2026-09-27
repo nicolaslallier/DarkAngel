@@ -26,6 +26,7 @@ const aFile: HomeFile = {
   folder_id: null,
   description: null,
   tags: [],
+  summary: null,
 }
 const A = { id: 'a', name: 'A', parent_id: null }
 const B = { id: 'b', name: 'B', parent_id: 'a' }
