@@ -162,14 +162,21 @@ def _measure(stream) -> int:
     return size
 
 
-def _queue_summary(background: BackgroundTasks, owner_sub: str, row: File, file: UploadFile):
-    """After the response: Ollama can take a minute, the upload must not.
-    The head is read now, while the upload's spooled file is still open."""
+def _queue_summary(background: BackgroundTasks, owner_sub: str, row: File) -> None:
+    """After the response: Ollama can take minutes, the upload must not. The
+    task reads the bytes back from storage, since a PDF or a video cannot be
+    judged by its head."""
     if not get_settings().ollama_url:
         return
-    file.file.seek(0)
-    head = file.file.read(summary.HEAD_BYTES)
-    background.add_task(summary.summarize, owner_sub, row.id, row.name, head)
+    background.add_task(
+        summary.summarize,
+        owner_sub,
+        row.id,
+        row.name,
+        row.content_type,
+        row.object_key,
+        row.size_bytes,
+    )
 
 
 @router.post("", response_model=FileInfo, responses={201: {"model": FileInfo}})
@@ -204,7 +211,7 @@ def upload_file(
     existing = repo.find_by_name(claims["sub"], name, folder_id)
     if existing is not None:
         info = _append_version(claims, repo, existing, file, size, content_type)
-        _queue_summary(background, claims["sub"], existing, file)
+        _queue_summary(background, claims["sub"], existing)
         return info
 
     try:
@@ -239,7 +246,7 @@ def upload_file(
         raise _unversioned()
     repo.finalize(row, s3_version_id=written.version_id, actor_sub=claims["sub"])
     repo.audit(claims["sub"], "upload", "file", row.id, {"name": name, "size": size})
-    _queue_summary(background, claims["sub"], row, file)
+    _queue_summary(background, claims["sub"], row)
     response.status_code = status.HTTP_201_CREATED
     return FileInfo.of(row)
 

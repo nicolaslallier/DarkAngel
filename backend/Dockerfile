@@ -8,6 +8,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /srv
 
+# ffmpeg turns uploaded images and video stills into JPEGs for the AI summary
+# (app/summary.py); it is the only system package the API needs.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # Installed from the project metadata so the image matches `uv pip install -e .`
 # in development; `app` is the package hatchling ships (see pyproject.toml).
 COPY pyproject.toml ./

@@ -158,3 +158,34 @@ def test_a_quota_refusal_leaves_nothing_behind(db, s3_bucket, monkeypatch):
 
     after = {o.object_name for o in s3_client().list_objects(s3_bucket, recursive=True)}
     assert after == before
+
+
+def test_an_upload_is_summarized_from_the_stored_bytes(db, s3_bucket, monkeypatch):
+    """The whole background path but the model: the task reads the object back
+    from the real store, extracts the docx, and writes the summary to Postgres."""
+    from app import summary
+    from app.core.config import get_settings
+    from tests.unit.test_summary import DOCX
+
+    monkeypatch.setattr(get_settings(), "ollama_url", "http://ollama:11434")
+    asked = []
+    monkeypatch.setattr(summary, "ask_ollama", lambda p, i: asked.append(p) or "Un rapport.")
+
+    file_id = upload("rapport.docx", DOCX, content_type="application/octet-stream").json()["id"]
+
+    assert "Ventes en hausse." in asked[0]
+    assert client.get(f"/api/files/{file_id}", headers=auth()).json()["summary"] == "Un rapport."
+
+
+def test_the_video_url_serves_ranges_of_the_object(db, s3_bucket):
+    """ffmpeg seeks through a video with range requests on this URL."""
+    import urllib.request
+
+    from app import summary
+
+    upload("clip.mp4", b"0123456789", content_type="video/mp4")
+    key = db.query(File).one().object_key
+
+    request = urllib.request.Request(summary._video_url(key), headers={"Range": "bytes=2-5"})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        assert response.read() == b"2345"
