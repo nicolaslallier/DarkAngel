@@ -151,7 +151,7 @@ test-unit: $(PY) ## Backend unit tests (everything faked, no services needed)
 test-regression: $(PY) ## Backend regression tests (pinned bugs + API contract)
 	cd $(BACKEND) && .venv/bin/python -m pytest -m regression $(ARGS)
 
-test-integration: $(PY) ## Backend integration tests (needs MinIO + Postgres; `make services-test-up`)
+test-integration: $(PY) ## Backend integration tests (needs S3 + Postgres; `make services-test-up`)
 	cd $(BACKEND) && .venv/bin/python -m pytest -m integration $(ARGS)
 
 test-frontend: ## Frontend unit, component and regression tests (vitest)
@@ -160,7 +160,7 @@ test-frontend: ## Frontend unit, component and regression tests (vitest)
 coverage-frontend: ## Frontend coverage report (text + lcov)
 	cd $(FRONTEND) && $(NPM) run test:coverage
 
-services-test-up: ## Start the services the integration suite runs against (MinIO + Postgres)
+services-test-up: ## Start the services the integration suite runs against (SeaweedFS + Postgres)
 	docker compose -f docker-compose.test.yml up -d --wait
 
 services-test-down: ## Stop those services and drop their data

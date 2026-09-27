@@ -65,13 +65,13 @@ jobs:
           if-no-files-found: warn
 
   backend-integration:
-    name: Backend integration (real MinIO + Postgres)
+    name: Backend integration (real SeaweedFS + Postgres)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
     services:
-      # A service container works here, unlike MinIO: the postgres image needs
+      # A service container works here, unlike SeaweedFS: the postgres image needs
       # no custom command, so Actions can start it directly.
       postgres:
         image: postgres:16-alpine
@@ -87,11 +87,11 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      # `CI` makes an unreachable MinIO or Postgres fail the job, not skip it.
+      # `CI` makes an unreachable S3 store or Postgres fail the job, not skip it.
       CI: "true"
-      DARKANGEL_S3_ENDPOINT: localhost:9000
-      DARKANGEL_S3_ACCESS_KEY: minioadmin
-      DARKANGEL_S3_SECRET_KEY: minioadmin
+      DARKANGEL_S3_ENDPOINT: localhost:8333
+      DARKANGEL_S3_ACCESS_KEY: s3admin
+      DARKANGEL_S3_SECRET_KEY: s3admin-secret
       DARKANGEL_S3_SECURE: "false"
       DARKANGEL_DATABASE_URL: postgresql+psycopg://darkangel:darkangel@localhost:5432/darkangel
     steps:
@@ -105,27 +105,27 @@ jobs:
           uv venv --python 3.11
           uv pip install -e ".[dev]"
 
-      - name: Start MinIO
+      - name: Start SeaweedFS
         # A plain container, not a service container: those cannot pass the
-        # `server /data` command the MinIO image needs. Chainguard's build, pinned by
-        # digest: quay.io and Docker Hub stopped serving MinIO publicly (2026-09).
+        # `server -s3` command. Same release and digest as the Infra stack.
         run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin \
-            cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1 server /data
+          docker run -d --name s3 -p 8333:8333 \
+            -e AWS_ACCESS_KEY_ID=s3admin \
+            -e AWS_SECRET_ACCESS_KEY=s3admin-secret \
+            chrislusf/seaweedfs:4.47@sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882 \
+            server -ip.bind=0.0.0.0 -s3 -s3.port.iceberg=0 -s3.port.lance=0
 
-      - name: Wait for MinIO
+      - name: Wait for SeaweedFS
         run: |
           for _ in $(seq 1 30); do
-            if curl -fsS http://localhost:9000/minio/health/ready >/dev/null; then
-              echo "MinIO is ready"
+            if curl -fsS http://localhost:8333/healthz >/dev/null; then
+              echo "SeaweedFS is ready"
               exit 0
             fi
             sleep 2
           done
-          echo "MinIO never became ready" >&2
-          docker logs minio >&2
+          echo "SeaweedFS never became ready" >&2
+          docker logs s3 >&2
           exit 1
 
       - name: Test
@@ -135,12 +135,12 @@ jobs:
         if: always()
         run: |
           echo "### Backend integration" >> "$GITHUB_STEP_SUMMARY"
-          echo "Ran against MinIO at $DARKANGEL_S3_ENDPOINT and Postgres at localhost:5432." \
+          echo "Ran against SeaweedFS at $DARKANGEL_S3_ENDPOINT and Postgres at localhost:5432." \
             >> "$GITHUB_STEP_SUMMARY"
 
-      - name: MinIO logs on failure
+      - name: SeaweedFS logs on failure
         if: failure()
-        run: docker logs minio
+        run: docker logs s3
 
       - name: Upload reports
         if: always()

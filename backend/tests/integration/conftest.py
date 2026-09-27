@@ -13,11 +13,11 @@ from app.core import db as db_module
 from app.core.config import get_settings
 
 # Matches docker-compose.test.yml and the CI step. Exporting any of these before
-# the run points the suite at another MinIO instead.
+# the run points the suite at another S3 store instead.
 DEFAULTS = {
-    "DARKANGEL_S3_ENDPOINT": "localhost:9000",
-    "DARKANGEL_S3_ACCESS_KEY": "minioadmin",
-    "DARKANGEL_S3_SECRET_KEY": "minioadmin",
+    "DARKANGEL_S3_ENDPOINT": "localhost:8333",
+    "DARKANGEL_S3_ACCESS_KEY": "s3admin",
+    "DARKANGEL_S3_SECRET_KEY": "s3admin-secret",
     "DARKANGEL_S3_SECURE": "false",
 }
 
