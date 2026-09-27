@@ -96,10 +96,10 @@ jobs:
           # as printed by `make webhook`.
           WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
           # The API path rewrites the stack's whole Env list on every deploy,
-          # so the MinIO secret has to be sent with it -- left out, each run
+          # so the S3 secret has to be sent with it -- left out, each run
           # would blank it and the Files page would stop working. The same
-          # value `make minio` gave the darkangel-api MinIO user.
-          MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+          # value as DARKANGEL_S3_SECRET_KEY in the Infra .env.
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
           # Same for the password `make postgres` gave the darkangel role:
           # left out, the backend's `alembic upgrade head` fails on startup.
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}

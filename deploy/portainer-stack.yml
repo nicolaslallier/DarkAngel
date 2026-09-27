@@ -6,7 +6,7 @@
 # Stack environment variables (Portainer -> Stack -> Environment variables):
 #   IMAGE_OWNER    GHCR namespace, lowercase   (default: nicolaslallier)
 #   IMAGE_TAG      image tag to run            (default: latest)
-#   MINIO_SECRET_KEY  secret of MinIO user darkangel-api (see `make minio`)
+#   S3_SECRET_KEY     secret of S3 identity darkangel (Infra: make s3-provision)
 #   POSTGRES_PASSWORD password of the darkangel database role (see `make postgres`)
 #
 # The GitHub Actions deploy workflow pushes new images and then calls this
@@ -39,14 +39,15 @@ services:
       # are read from Keycloak directly over infra-net, so the container needs
       # no copy of the Infra CA to trust the public hostname.
       DARKANGEL_AUTH_JWKS_URL: http://keycloak:8080/realms/ea/protocol/openid-connect/certs
-      # Home files go to the Infra MinIO (`minio:9000` on infra-net), bucket
-      # darkangel-files as MinIO user darkangel-api -- both made by `make minio`.
-      # MINIO_SECRET_KEY is a stack variable `make up` copies from .portainer.env.
-      DARKANGEL_S3_SECRET_KEY: ${MINIO_SECRET_KEY:-}
+      # Home files go to the Infra SeaweedFS (`s3:8333` on infra-net), bucket
+      # darkangel-files as identity darkangel -- both made by Infra's
+      # `make s3-provision app=darkangel bucket=darkangel-files versioned=1`.
+      # S3_SECRET_KEY is a stack variable `make up` copies from .portainer.env.
+      DARKANGEL_S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       # Metadata lives in the Infra PostgreSQL (`postgres:5432` on infra-net),
       # database darkangel as role darkangel -- both made by `make postgres`.
       # POSTGRES_PASSWORD is a stack variable `make up` copies from
-      # .portainer.env, the same way MINIO_SECRET_KEY arrives.
+      # .portainer.env, the same way S3_SECRET_KEY arrives.
       DARKANGEL_DATABASE_URL: postgresql+psycopg://darkangel:${POSTGRES_PASSWORD:-}@postgres:5432/darkangel
     expose:
       - "8000"

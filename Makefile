@@ -39,7 +39,7 @@ DIST ?= dist
         test test-backend test-unit test-integration test-regression test-frontend \
         snapshot services-test-up services-test-down migrate coverage coverage-backend coverage-frontend \
         build build-backend build-frontend preview \
-        up pull down delete webhook stack-selftest deploy keycloak-client minio postgres \
+        up pull down delete webhook stack-selftest deploy keycloak-client postgres \
         runner-env check-runner-env runner-up runner-down runner-restart \
         runner-logs runner-status runner-pull runner-shell \
         up-local down-local restart ps logs \
@@ -250,9 +250,6 @@ stack-selftest: ## Check portainer-stack.sh's helpers without calling Portainer
 
 keycloak-client: ## Create/update the darkangel-spa client in Keycloak realm ea (INFRA_ENV, KC_CACERT)
 	@scripts/provision-keycloak-client.sh
-
-minio: ## Create/update the Infra MinIO bucket + user home files live in (INFRA_ENV, .portainer.env)
-	@scripts/provision-minio.sh
 
 postgres: ## Create/update the Infra PostgreSQL database + role the metadata lives in (PGADMIN_URL)
 	@scripts/provision-postgres.sh
