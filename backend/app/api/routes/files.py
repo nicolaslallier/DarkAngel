@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from collections.abc import Iterator
@@ -18,6 +19,8 @@ from app.core.config import get_settings
 from app.models.files import File, Folder
 from app.repositories.files import FileRepo, NameTaken, Order, QuotaExceeded, Sort
 from app.repositories.folders import FolderRepo, FolderRepository
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -52,6 +55,13 @@ def s3_client() -> Minio:
     return Minio(
         s.s3_endpoint, access_key=s.s3_access_key, secret_key=s.s3_secret_key, secure=s.s3_secure
     )
+
+
+def _unversioned() -> HTTPException:
+    """Every write must come back with a version id: the version table indexes
+    them and restore (BR-8) replays them. An unversioned bucket returns none."""
+    log.error("bucket %s returned no version id; is versioning enabled?", get_settings().s3_bucket)
+    return HTTPException(status.HTTP_502_BAD_GATEWAY, "Storage is unavailable")
 
 
 def _sweep(repo: FileRepo) -> None:
@@ -197,7 +207,12 @@ def upload_file(
         repo.abandon(row)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Storage is unavailable") from e
 
-    repo.finalize(row, s3_version_id=written.version_id or "", actor_sub=claims["sub"])
+    if not written.version_id:
+        repo.abandon(row)
+        with suppress(Exception):
+            s3_client().remove_object(settings.s3_bucket, row.object_key)
+        raise _unversioned()
+    repo.finalize(row, s3_version_id=written.version_id, actor_sub=claims["sub"])
     repo.audit(claims["sub"], "upload", "file", row.id, {"name": name, "size": size})
     response.status_code = status.HTTP_201_CREATED
     return FileInfo.of(row)
@@ -235,9 +250,13 @@ def _append_version(
     except S3Error as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Storage is unavailable") from e
 
+    if not written.version_id:
+        # The previous bytes are already overwritten on an unversioned bucket;
+        # failing loudly is all that is left to do.
+        raise _unversioned()
     repo.add_version(
         existing,
-        s3_version_id=written.version_id or "",
+        s3_version_id=written.version_id,
         size_bytes=size,
         content_type=content_type,
         actor_sub=claims["sub"],
