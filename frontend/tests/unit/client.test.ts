@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { apiGet, apiRequest } from '@/api/client'
+import { ApiError, apiGet, apiRequest } from '@/api/client'
 import { accessToken } from '@/auth'
 
 // The client is the only module that calls fetch; auth is the only thing it
@@ -80,4 +80,42 @@ describe('apiGet', () => {
 
     expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.test/health')
   })
+})
+
+describe('ApiError', () => {
+  it('carries the status, the parsed body, and the server detail as its message', async () => {
+    const body = { detail: 'A folder named work already exists here' }
+    fetchMock.mockResolvedValue(response(409, body))
+
+    const error = await apiRequest('POST', '/folders').catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).status).toBe(409)
+    expect((error as ApiError).body).toEqual(body)
+    expect((error as ApiError).message).toBe('A folder named work already exists here')
+  })
+
+  it('joins a pydantic validation error list', async () => {
+    fetchMock.mockResolvedValue(response(422, { detail: [{ msg: 'too long' }, { msg: 'bad' }] }))
+
+    await expect(apiRequest('PATCH', '/files/1')).rejects.toThrow('too long; bad')
+  })
+
+  it('falls back to method, path and status when the body is not JSON', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => {
+        throw new SyntaxError('not json')
+      },
+    } as unknown as Response)
+
+    await expect(apiRequest('GET', '/files')).rejects.toThrow('GET /files failed with 502')
+  })
+})
+
+it('sends a Content-Type only when one is given', async () => {
+  await apiRequest('PATCH', '/files/1', '{}', 'application/json')
+
+  expect(fetchMock.mock.calls[0][1].headers).toEqual({ 'Content-Type': 'application/json' })
 })

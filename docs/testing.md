@@ -8,9 +8,9 @@ remember and none to forget.
 
 | Suite | Where | What is real | CI job |
 |---|---|---|---|
-| Backend unit | `backend/tests/unit/` (41 tests) | Nothing outside the process. MinIO is `FakeMinio`, the database is `FakeFileRepository`, Keycloak is a fake JWKS. | `backend-unit` |
-| Backend regression | `backend/tests/regression/` (23 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
-| Backend integration | `backend/tests/integration/` (45 tests) | A real MinIO in a throwaway bucket, and a real PostgreSQL migrated to head. Auth stays faked. | `backend-integration` |
+| Backend unit | `backend/tests/unit/` (89 tests) | Nothing outside the process. MinIO is `FakeMinio`, the database is `FakeFileRepository`, Keycloak is a fake JWKS. | `backend-unit` |
+| Backend regression | `backend/tests/regression/` (27 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
+| Backend integration | `backend/tests/integration/` (65 tests) | A real MinIO in a throwaway bucket, and a real PostgreSQL migrated to head. Auth stays faked. | `backend-integration` |
 | Frontend unit | `frontend/tests/unit/` | jsdom. `fetch` and `oidc-client-ts` are mocked. | `frontend` |
 | Frontend regression | `frontend/tests/regression/` | Same as frontend unit. | `frontend` |
 
@@ -69,14 +69,16 @@ Every backend run ends with up to three blocks, printed by
 
 ```
 --------------------------------- modules run ----------------------------------
-  tests/unit/test_auth.py                               5 tests
-  tests/unit/test_files.py                             35 tests
-  tests/unit/test_health.py                             1 test
+  tests/unit/test_auth.py                               1 test
+  tests/unit/test_db.py                                 4 tests
+  tests/unit/test_files.py                             65 tests
+  tests/unit/test_folders.py                            18 tests
+  tests/unit/test_health.py                              1 test
 ------------------------------ skipped at runtime ------------------------------
-   45 tests  Skipped: MinIO unreachable at localhost:9000: HTTPConnectionPool …
+   65 tests  Skipped: MinIO unreachable at localhost:9000: HTTPConnectionPool …
 ------------------- deselected by -m (not run in this pass) --------------------
-  integration                                          45 tests   -> make test-integration
-  regression                                           23 tests   -> make test-regression
+  integration                                          65 tests   -> make test-integration
+  regression                                           27 tests   -> make test-regression
 ```
 
 - **modules run** — one line per test module that actually executed, with how
@@ -241,16 +243,17 @@ applied once to the combined total — currently 96%) and separately by the
 
 **The `backend-unit` gate has an exclusion, and it is deliberate.** That job
 passes `--cov-config=backend/.coveragerc.ci`, which omits
-`app/repositories/files.py` and `app/scripts/backfill.py`. Both are exercised
-only against a real PostgreSQL, so a service-less `-m "unit or regression"`
-run cannot reach them: `FakeFileRepository` *substitutes* for the repository
-rather than exercising it, so no amount of unit testing against the fake would
-add a single covered line to the real module. Un-omitted they drag that job to
+`app/repositories/files.py`, `app/repositories/folders.py` and
+`app/scripts/backfill.py`. All three are exercised only against a real
+PostgreSQL, so a service-less `-m "unit or regression"` run cannot reach them:
+the fake repositories *substitute* for the real ones rather than exercising
+them, so no amount of unit testing against the fakes would add a single
+covered line to the real modules. Un-omitted they drag that job to
 76% and it fails the 80 gate for a reason unrelated to test quality.
 
-They are gated instead by `backend-integration`: 14 tests in
+They are gated instead by `backend-integration`: 22 tests in
 `tests/integration/test_repository.py` and 8 in
-`tests/integration/test_backfill.py`. Those 22 alone reach 99% of the
+`tests/integration/test_backfill.py`. Those 30 alone reach 99% of the
 repository and 83% of the backfill script — the single repository miss is the
 `file_repository` DI factory, which they bypass by constructing
 `FileRepository` directly. The factory is covered by the rest of the suite

@@ -107,12 +107,13 @@ jobs:
 
       - name: Start MinIO
         # A plain container, not a service container: those cannot pass the
-        # `server /data` command the MinIO image needs.
+        # `server /data` command the MinIO image needs. Chainguard's build, pinned by
+        # digest: quay.io and Docker Hub stopped serving MinIO publicly (2026-09).
         run: |
           docker run -d --name minio -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+            cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1 server /data
 
       - name: Wait for MinIO
         run: |

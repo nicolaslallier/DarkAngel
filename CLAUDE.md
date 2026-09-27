@@ -49,9 +49,11 @@ guide — read it before adding a test.
   `get_settings()`, never by instantiating `Settings()` directly.
 - `core/auth.py` — Keycloak (realm `ea`) bearer-token check. Protect a route by
   taking the `Claims` dependency; `/api/health` is the only public route.
-- `api/routes/files.py` — home files in the Infra MinIO (bucket `darkangel-files`,
-  provisioned by `make minio`), keyed `<sub>/<name>` so users see only their own.
-  Tests swap `minio_client()` for an in-memory fake.
+- `api/routes/files.py` — home files: metadata in PostgreSQL (`repositories/files.py`),
+  bytes in the Infra MinIO (bucket `darkangel-files`, provisioned by `make minio`) under
+  `<sub>/<file uuid>`. `api/routes/folders.py` + `repositories/folders.py` hold the
+  folder tree. Every query filters on the caller's `sub`. Tests swap `minio_client()`
+  and both repositories for in-memory fakes (`tests/conftest.py`).
 
 **Frontend** (`frontend/src/`)
 
