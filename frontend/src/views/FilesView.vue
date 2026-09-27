@@ -170,7 +170,10 @@ function formatSize(bytes: number) {
           </td>
         </tr>
         <tr v-for="file in store.files" :key="file.id">
-          <td>{{ file.name }}</td>
+          <td>
+            {{ file.name }}
+            <p v-if="file.summary" class="summary">{{ file.summary }}</p>
+          </td>
           <td>
             <button
               v-for="t in file.tags"
@@ -252,6 +255,13 @@ td {
 
 .error {
   color: #e06c75;
+}
+
+.summary {
+  margin: 0.25rem 0 0;
+  font-size: 0.85em;
+  opacity: 0.75;
+  max-width: 60ch;
 }
 
 .visually-hidden {

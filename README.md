@@ -130,6 +130,13 @@ object storage directly. Uploads are capped at 5 GB per file, both by the API
 `deploy/nginx/darkangel.conf`, copied to Infra's `nginx/conf.d/`). The bucket is
 versioned: the API refuses an upload the store returns no version id for.
 
+**AI summary:** after an upload (or a new version) of a text file, the API
+sends its first 32 KiB to the LAN Ollama (`DARKANGEL_OLLAMA_URL`, model
+`DARKANGEL_OLLAMA_MODEL`, set in `deploy/portainer-stack.yml`) and stores the
+answer in the file's `summary`, which the Files page shows under its name. It
+runs after the upload has returned, so it appears on the next reload; binary
+files (PDFs, images) and an unreachable Ollama leave it blank. Unset URL = off.
+
 **One-time setup:** on the Docker host, in the Infra repo, set
 `DARKANGEL_S3_SECRET_KEY` in its `.env` and run
 `make s3-provision app=darkangel bucket=darkangel-files versioned=1` (the

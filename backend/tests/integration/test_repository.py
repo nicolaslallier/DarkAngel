@@ -270,3 +270,17 @@ def test_a_case_only_file_rename_is_not_a_clash(repository, db):
     repository.update(row, name="Notes.txt")
 
     assert repository.get("user-1", row.id).name == "Notes.txt"
+
+
+def test_set_summary_keeps_updated_at_and_never_crosses_owners(repository, db):
+    row = reserve(repository)
+    repository.finalize(row, s3_version_id="v", actor_sub="user-1")
+    before = db.get(File, row.id).updated_at
+
+    repository.set_summary("user-2", row.id, "stolen")
+    repository.set_summary("user-1", row.id, "A shopping list.")
+
+    db.expire_all()
+    stored = db.get(File, row.id)
+    assert stored.summary == "A shopping list."
+    assert stored.updated_at == before

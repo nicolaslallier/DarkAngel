@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import Depends
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -236,6 +236,16 @@ class FileRepository:
             self.db.rollback()
             raise NameTaken from e
         return file
+
+    def set_summary(self, owner_sub: str, file_id: uuid.UUID, summary: str | None) -> None:
+        """The post-upload summary. updated_at is pinned: a summary landing is
+        not the owner modifying the file."""
+        self.db.execute(
+            update(File)
+            .where(File.owner_sub == owner_sub, File.id == file_id)
+            .values(summary=summary, updated_at=File.updated_at)
+        )
+        self.db.commit()
 
     def sweep_pending(self, older_than_seconds: int = 3600) -> list[str]:
         """Drop reservations whose upload never finished, returning the object
