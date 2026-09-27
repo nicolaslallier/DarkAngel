@@ -22,9 +22,9 @@ import uuid
 import zipfile
 from collections.abc import Sequence
 from datetime import timedelta
-from xml.etree import ElementTree
 
 import pypdf
+from defusedxml import ElementTree
 
 from app.core.config import get_settings
 from app.core.db import session_factory
@@ -37,8 +37,8 @@ TEXT_CHARS = 32 * 1024
 # Documents and images are read whole, into memory; past this, no summary.
 MAX_READ_BYTES = 50 * 1024 * 1024
 # A zip member bigger than this uncompressed is not parsed (zip bomb guard).
-# The stdlib XML parser is safe past that: it never fetches external
-# entities, and expat >= 2.4.1 (bookworm has 2.5) caps entity expansion.
+# The XML itself goes through defusedxml: no DTDs, no entities, whatever
+# the expat version underneath.
 MAX_MEMBER_BYTES = 200 * 1024 * 1024
 # Where in a video the stills are taken, as fractions of its duration.
 FRAMES = (0.1, 0.35, 0.6, 0.85)
@@ -72,7 +72,7 @@ def pdf_text(data: bytes) -> str:
     return "\n".join(parts)
 
 
-def _member(archive: zipfile.ZipFile, name: str) -> ElementTree.Element:
+def _member(archive: zipfile.ZipFile, name: str):
     if archive.getinfo(name).file_size > MAX_MEMBER_BYTES:
         raise ValueError(f"{name} is too big to parse")
     return ElementTree.fromstring(archive.read(name))

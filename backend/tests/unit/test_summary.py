@@ -290,3 +290,16 @@ def test_no_summary_without_an_ollama_url(repo, store, monkeypatch):
 
     assert upload().status_code == 201
     assert calls == []
+
+
+def test_xml_with_entities_is_refused():
+    """defusedxml: a billion-laughs docx fails instead of expanding."""
+    bomb = zipped(
+        {
+            "word/document.xml": '<?xml version="1.0"?><!DOCTYPE d [<!ENTITY a "aaaaaaaaaa">'
+            '<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]>'
+            f"<w:document {W}><w:body><w:p><w:r><w:t>&b;</w:t></w:r></w:p></w:body></w:document>"
+        }
+    )
+    with pytest.raises(Exception, match="(?i)entit"):
+        summary.docx_text(bomb)
