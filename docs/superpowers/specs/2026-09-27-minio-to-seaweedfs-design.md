@@ -168,15 +168,18 @@ the tests.
 
 ### 6. Cutover runbook
 
-Order matters: the backend starts dialing `s3:8333` as soon as the merge deploys.
+Order matters: the backend starts dialing `s3:8333` as soon as the merge
+deploys, and the reset must run *before* that. Run after, it would also wipe
+anything uploaded in between — rows and version records gone, bytes orphaned.
+Running it first costs nothing: Files is already down until the merge.
 
 1. Infra: set `DARKANGEL_S3_SECRET_KEY` in the Infra `.env`, run
    `make s3-provision app=darkangel bucket=darkangel-files versioned=1`.
 2. DarkAngel: set `S3_SECRET_KEY` in `.portainer.env` and as a GitHub secret
    (`gh secret set S3_SECRET_KEY`).
-3. Merge the PR; `deploy.yml` redeploys the stack.
-4. `make files-reset` — empties the metadata that points at bytes that no
-   longer exist (below).
+3. `make files-reset` (from this branch) — empties the metadata that points at
+   bytes that no longer exist (below).
+4. Merge the PR; `deploy.yml` redeploys the stack.
 5. Smoke test on the deployed app: upload a file, download it, and check its
    `file_versions.s3_version_id` is non-empty.
 
@@ -203,7 +206,7 @@ one-time tool; delete it in a later PR once the cutover is done.
 | `s3:8333` unreachable | Unchanged: uploads/downloads `502`, listings still work (SQL only) |
 | Bucket not versioned | Upload `502` with a log line naming versioning (§4) |
 | Wrong/missing `S3_SECRET_KEY` | `AccessDenied` → `502`; `portainer-stack.sh` warns at deploy time when unset |
-| Old rows before `files-reset` | Downloads `502`/`404` — the window is steps 3→4 of the runbook |
+| Old rows left if `files-reset` is skipped | Download `404` (NoSuchKey, pinned by `test_a_row_whose_object_is_gone_downloads_as_404`) |
 
 ## Files touched
 

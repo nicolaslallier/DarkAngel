@@ -254,7 +254,7 @@ keycloak-client: ## Create/update the darkangel-spa client in Keycloak realm ea 
 postgres: ## Create/update the Infra PostgreSQL database + role the metadata lives in (PGADMIN_URL)
 	@scripts/provision-postgres.sh
 
-files-reset: ## One-time, after the SeaweedFS cutover: empty files + file_versions (PGADMIN_URL, CONFIRM=darkangel)
+files-reset: ## One-time, before the first SeaweedFS deploy: empty files + file_versions (PGADMIN_URL, CONFIRM=darkangel)
 	@scripts/files-reset.sh
 
 # The webhook only redeploys; stopping the stack is `make down`, and creating

@@ -110,6 +110,18 @@ def test_downloading_a_missing_file_is_404(db, s3_bucket):
     assert client.get(f"/api/files/{uuid.uuid4()}/content", headers=auth()).status_code == 404
 
 
+def test_a_row_whose_object_is_gone_downloads_as_404(db, s3_bucket):
+    # The case the cutover leaves behind: a row, but no bytes. The test above
+    # stops at the missing row; this one reaches get_object, so it proves the
+    # real store answers NoSuchKey (here, a delete marker) and not a 502.
+    from app.api.routes.files import s3_client
+
+    file_id = upload("gone.txt").json()["id"]
+    s3_client().remove_object(s3_bucket, db.query(File).one().object_key)
+
+    assert client.get(f"/api/files/{file_id}/content", headers=auth()).status_code == 404
+
+
 def test_deleting_a_missing_file_is_404(db, s3_bucket):
     # Changed from the old behaviour: remove_object on a missing key was a
     # silent success, but a soft delete needs a row to mark.

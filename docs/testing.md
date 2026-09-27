@@ -10,7 +10,7 @@ remember and none to forget.
 |---|---|---|---|
 | Backend unit | `backend/tests/unit/` (93 tests) | Nothing outside the process. Object storage is `FakeS3`, the database is `FakeFileRepository`, Keycloak is a fake JWKS. | `backend-unit` |
 | Backend regression | `backend/tests/regression/` (27 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
-| Backend integration | `backend/tests/integration/` (71 tests) | A real SeaweedFS in a throwaway bucket, and a real PostgreSQL migrated to head. Auth stays faked. | `backend-integration` |
+| Backend integration | `backend/tests/integration/` (72 tests) | A real SeaweedFS in a throwaway bucket, and a real PostgreSQL migrated to head. Auth stays faked. | `backend-integration` |
 | Frontend unit | `frontend/tests/unit/` | jsdom. `fetch` and `oidc-client-ts` are mocked. | `frontend` |
 | Frontend regression | `frontend/tests/regression/` | Same as frontend unit. | `frontend` |
 
@@ -75,9 +75,9 @@ Every backend run ends with up to three blocks, printed by
   tests/unit/test_folders.py                            18 tests
   tests/unit/test_health.py                              1 test
 ------------------------------ skipped at runtime ------------------------------
-   71 tests  Skipped: S3 store unreachable at localhost:8333: HTTPConnectionPool …
+   72 tests  Skipped: S3 store unreachable at localhost:8333: HTTPConnectionPool …
 ------------------- deselected by -m (not run in this pass) --------------------
-  integration                                          71 tests   -> make test-integration
+  integration                                          72 tests   -> make test-integration
   regression                                           27 tests   -> make test-regression
 ```
 

@@ -136,10 +136,10 @@ versioned: the API refuses an upload the store returns no version id for.
 `S3_SECRET_KEY` and in the `S3_SECRET_KEY` repository secret, then `make up`.
 To rotate it, change it in all three places and run both targets again.
 
-**Moving from MinIO (once):** Infra started SeaweedFS empty. After the first
+**Moving from MinIO (once):** Infra started SeaweedFS empty. *Before* the first
 deploy on SeaweedFS, run `PGADMIN_URL=... CONFIRM=darkangel make files-reset` to
-drop the metadata of files whose bytes stayed behind, then upload a file and
-download it back.
+drop the metadata of files whose bytes stayed behind — run after, it would also
+wipe anything uploaded since. Then deploy, upload a file and download it back.
 
 ## Deployment
 
