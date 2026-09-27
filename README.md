@@ -121,22 +121,25 @@ In the stack, `DARKANGEL_AUTH_JWKS_URL` reads the keys from
 
 ## Files
 
-The **Files** page (`/files`) keeps your home files in the Infra MinIO. Each
+The **Files** page (`/files`) keeps your home files in the Infra SeaweedFS. Each
 signed-in user sees only their own: the API (`/api/files`) stores them under
-their Keycloak `sub` in bucket `darkangel-files`, as the MinIO user
-`darkangel-api`, over `http://minio:9000` on `infra-net`. The browser never
-talks to MinIO directly. Uploads are capped at 100 MB by the Infra NGINX
+their Keycloak `sub` in bucket `darkangel-files`, as the S3 identity
+`darkangel`, over `http://s3:8333` on `infra-net`. The browser never talks to
+object storage directly. Uploads are capped at 100 MB by the Infra NGINX
 (`client_max_body_size` in `deploy/nginx/darkangel.conf`). The bucket is
-versioned, so a file that was overwritten or deleted can be brought back from
-the MinIO console.
+versioned: the API refuses an upload the store returns no version id for.
 
-**One-time setup:** put a secret of 8+ characters in `.portainer.env` as
-`MINIO_SECRET_KEY`. Then, on the Docker host, run `make minio` to create the
-bucket, the user, and its bucket-only policy, and `make up` to hand the secret
-to the API. `make minio` reads the MinIO root credentials from the Infra `.env`
-(`INFRA_ENV`, default `../Infra/.env`). It runs `mc` in a throwaway container on
-`infra-net`, and it is safe to re-run: to rotate the secret, change it and run
-both targets again.
+**One-time setup:** on the Docker host, in the Infra repo, set
+`DARKANGEL_S3_SECRET_KEY` in its `.env` and run
+`make s3-provision app=darkangel bucket=darkangel-files versioned=1` (the
+`versioned=1` matters). Put the same value in DarkAngel's `.portainer.env` as
+`S3_SECRET_KEY` and in the `S3_SECRET_KEY` repository secret, then `make up`.
+To rotate it, change it in all three places and run both targets again.
+
+**Moving from MinIO (once):** Infra started SeaweedFS empty. After the first
+deploy on SeaweedFS, run `PGADMIN_URL=... CONFIRM=darkangel make files-reset` to
+drop the metadata of files whose bytes stayed behind, then upload a file and
+download it back.
 
 ## Deployment
 
@@ -195,8 +198,9 @@ that repo — until that is done, DarkAngel is running but nothing routes to it.
    there, a hosted runner cannot deploy at all — stand up the self-hosted runner
    (`make runner-up`, see "Deploying from a self-hosted runner") and set
    `DEPLOY_RUNNER` to `darkangel`.
-5. **Provision file storage** — set `MINIO_SECRET_KEY` in `.portainer.env` and
-   run `make minio` (see [Files](#files)).
+5. **Provision file storage** — run Infra's `make s3-provision app=darkangel
+   bucket=darkangel-files versioned=1` and set `S3_SECRET_KEY` in
+   `.portainer.env` (see [Files](#files)).
 
 To drive the same stack from a laptop, copy `.portainer.env.example` to
 `.portainer.env` and put the same token in it (it is gitignored: the token is
@@ -216,8 +220,9 @@ WSL — cannot break the deploy.
 - `PORTAINER_WEBHOOK_URL` — optional fallback, used only when there is no API
   key. It redeploys a stack that already exists but cannot create one, so it
   still needs a first `make up`; `make webhook` prints the URL.
-- `MINIO_SECRET_KEY` — the secret `make minio` gave the `darkangel-api` MinIO
-  user, the same value as in `.portainer.env`. The API path rewrites the
+- `S3_SECRET_KEY` — the secret of the `darkangel` S3 identity, the same value as
+  `DARKANGEL_S3_SECRET_KEY` in the Infra `.env` and `S3_SECRET_KEY` in
+  `.portainer.env`. The API path rewrites the
   stack's whole environment on each deploy, so without it every run blanks the
   key and the Files page stops working. Not needed on the webhook path, which
   leaves the stack's environment alone.
