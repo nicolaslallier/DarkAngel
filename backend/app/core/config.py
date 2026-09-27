@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     # Upload guards. Both are refused with 413: one file over the first, or a
     # file that would push the owner's total over the second.
-    max_upload_bytes: int = 100 * 1024 * 1024
+    max_upload_bytes: int = 5 * 1024 * 1024 * 1024
     user_quota_bytes: int = 5 * 1024 * 1024 * 1024
     # Refused at upload time. Defence in depth only -- the boundary that
     # actually holds is inline_content_types below, which decides what a
