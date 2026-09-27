@@ -60,7 +60,7 @@ def pytest_terminal_summary(terminalreporter):
             tr.write_line(f"  {module:<52}{_tests(count)}")
 
     # A skip is one line per reason, not per test: the integration suite skips
-    # nine times over the same unreachable MinIO.
+    # nine times over the same unreachable object store.
     skipped = Counter(
         report.longrepr[2] if isinstance(report.longrepr, tuple) else str(report.longrepr)
         for report in tr.stats.get("skipped", [])
@@ -80,7 +80,7 @@ def pytest_terminal_summary(terminalreporter):
 @pytest.fixture(autouse=True)
 def fake_jwks(monkeypatch):
     # Stands in for Keycloak's JWKS endpoint: every token verifies against KEY.
-    # Autouse everywhere, integration included: only MinIO is real in this project.
+    # Autouse everywhere, integration included: only object storage is real in this project.
     signing_key = SimpleNamespace(key=KEY.public_key())
     fake = SimpleNamespace(get_signing_key_from_jwt=lambda _token: signing_key)
     monkeypatch.setattr(auth, "jwks_client", lambda: fake)
@@ -100,7 +100,7 @@ def token(**overrides) -> str:
     return jwt.encode(claims, KEY, algorithm="RS256")
 
 
-class FakeMinio:
+class FakeS3:
     """The slice of minio.Minio the files routes use, over a dict."""
 
     def __init__(self):
@@ -128,10 +128,10 @@ class FakeMinio:
 
 @pytest.fixture
 def store(monkeypatch):
-    """Swap MinIO for FakeMinio. Explicit, never autouse: the integration
+    """Swap object storage for FakeS3. Explicit, never autouse: the integration
     suite must keep talking to the real service."""
-    fake = FakeMinio()
-    monkeypatch.setattr(files, "minio_client", lambda: fake)
+    fake = FakeS3()
+    monkeypatch.setattr(files, "s3_client", lambda: fake)
     return fake
 
 

@@ -1,9 +1,9 @@
 """Acceptance — the five Phase 2 scenarios of docs/files-feature.md §12, one
-test each, through the real routes, a real PostgreSQL and a real MinIO."""
+test each, through the real routes, a real PostgreSQL and a real SeaweedFS."""
 
 from fastapi.testclient import TestClient
 
-from app.api.routes.files import minio_client
+from app.api.routes.files import s3_client
 from app.main import app
 from tests.conftest import token
 
@@ -35,31 +35,31 @@ def upload(name, folder_id=None, sub="user-1"):
 
 def _object_versions(bucket):
     """A snapshot of every object version and delete marker in the bucket,
-    as (key, version_id) pairs -- proof positive that a MinIO read or write
+    as (key, version_id) pairs -- proof positive that a storage read or write
     happened, rather than trusting a mock that the route never calls."""
-    client_ = minio_client()
+    client_ = s3_client()
     return {
         (obj.object_name, obj.version_id)
         for obj in client_.list_objects(bucket, recursive=True, include_version=True)
     }
 
 
-def test_renaming_a_folder_reads_and_writes_no_object(db, minio_bucket):
+def test_renaming_a_folder_reads_and_writes_no_object(db, s3_bucket):
     # Given a folder "Invoices" containing a file
     invoices = folder("Invoices")
     upload("march.pdf", invoices)
-    before = _object_versions(minio_bucket)
+    before = _object_versions(s3_bucket)
 
     # When the user renames the folder to "Bills"
     response = client.patch(f"/api/folders/{invoices}", headers=auth(), json={"name": "Bills"})
 
-    # Then the response is 200 and no MinIO object has been read or written
+    # Then the response is 200 and no stored object has been read or written
     assert response.status_code == 200
     assert response.json()["name"] == "Bills"
-    assert _object_versions(minio_bucket) == before
+    assert _object_versions(s3_bucket) == before
 
 
-def test_moving_a_folder_into_its_child_is_refused(db, minio_bucket):
+def test_moving_a_folder_into_its_child_is_refused(db, s3_bucket):
     # Given a folder tree A > B
     a = folder("A")
     b = folder("B", parent_id=a)
@@ -73,7 +73,7 @@ def test_moving_a_folder_into_its_child_is_refused(db, minio_bucket):
     assert client.get("/api/folders", headers=auth()).json() == before
 
 
-def test_a_second_root_folder_named_work_is_refused(db, minio_bucket):
+def test_a_second_root_folder_named_work_is_refused(db, s3_bucket):
     # Given a root folder named "work" exists
     folder("work")
 
@@ -84,7 +84,7 @@ def test_a_second_root_folder_named_work_is_refused(db, minio_bucket):
     assert response.status_code == 409
 
 
-def test_search_finds_a_tag_and_a_description_and_no_one_elses_file(db, minio_bucket):
+def test_search_finds_a_tag_and_a_description_and_no_one_elses_file(db, s3_bucket):
     # Given a file tagged "tax" and another described "tax return"
     tagged = upload("a.txt")
     described = upload("b.txt")
@@ -100,7 +100,7 @@ def test_search_finds_a_tag_and_a_description_and_no_one_elses_file(db, minio_bu
     assert sorted(f["id"] for f in found) == sorted([tagged, described])
 
 
-def test_deleting_a_non_empty_folder_names_the_child_count(db, minio_bucket):
+def test_deleting_a_non_empty_folder_names_the_child_count(db, s3_bucket):
     # Given a folder containing two files
     box = folder("Box")
     upload("one.txt", box)

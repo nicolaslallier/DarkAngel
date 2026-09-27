@@ -4,7 +4,7 @@
     make backfill ARGS=--confirm     # do it
 
 MIRROR THE BUCKET FIRST. This rewrites live data, and the server-side copy
-starts a fresh version chain: MinIO versions predating the move do not follow
+starts a fresh version chain: object versions predating the move do not follow
 the object to its new key.
 
     mc mirror --preserve infra/darkangel-files ./darkangel-files-backup
@@ -26,14 +26,15 @@ from minio.commonconfig import CopySource
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.api.routes.files import minio_client
+from app.api.routes.files import s3_client
 from app.core.config import get_settings
 from app.core.db import session_factory
 from app.models.files import File, FileVersion
 
 MIRROR_WARNING = (
     "backfill rewrites live objects. Mirror the bucket first "
-    "(`mc mirror --preserve infra/darkangel-files ./backup`), then pass confirm=True."
+    "(e.g. `aws s3 sync s3://darkangel-files ./backup "
+    "--endpoint-url https://s3.infra.famillelallier.net`), then pass confirm=True."
 )
 
 
@@ -53,7 +54,7 @@ def backfill(
         raise RuntimeError(MIRROR_WARNING)
 
     settings = get_settings()
-    client = minio_client()
+    client = s3_client()
     moved: list[tuple[str, str]] = []
     skipped: list[str] = []
 

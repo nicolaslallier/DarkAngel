@@ -127,7 +127,7 @@ def test_listing_sweeps_abandoned_reservations(repo, store):
 
 
 def test_listing_survives_a_sweep_against_unreachable_storage(repo, store):
-    """§12: GET /api/files needs no object storage, so a MinIO outage during
+    """§12: GET /api/files needs no object storage, so a storage outage during
     the ride-along sweep must not turn it into a 500. An unreachable server
     raises urllib3's MaxRetryError, which is not an S3Error."""
 
@@ -490,7 +490,7 @@ def patch(file_id, body, sub="user-1"):
 
 
 def test_rename_is_audited_and_touches_no_object(repo, monkeypatch):
-    monkeypatch.setattr(files_routes, "minio_client", lambda: pytest.fail("PATCH touched MinIO"))
+    monkeypatch.setattr(files_routes, "s3_client", lambda: pytest.fail("PATCH touched storage"))
     row = seed(repo, name="a.txt")
 
     response = patch(row.id, {"name": " b.txt "})

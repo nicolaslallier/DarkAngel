@@ -24,12 +24,12 @@ class Settings(BaseSettings):
     # trusting the Infra CA for the public hostname from inside the container.
     auth_jwks_url: str | None = None
 
-    # Home files, in the Infra MinIO: plain HTTP `minio:9000` on infra-net. The
-    # bucket and its scoped user are made by `make minio` (scripts/provision-minio.sh).
-    s3_endpoint: str = "minio:9000"
+    # Home files, in the Infra SeaweedFS: plain HTTP `s3:8333` on infra-net. The
+    # bucket and its scoped identity are made by Infra's `make s3-provision`.
+    s3_endpoint: str = "s3:8333"
     s3_secure: bool = False
     s3_bucket: str = "darkangel-files"
-    s3_access_key: str = "darkangel-api"
+    s3_access_key: str = "darkangel"
     s3_secret_key: str = ""
 
     # Infra PostgreSQL: the metadata index and the source of truth for what

@@ -47,7 +47,7 @@ class FileInfo(BaseModel):
 
 
 @lru_cache
-def minio_client() -> Minio:
+def s3_client() -> Minio:
     s = get_settings()
     return Minio(
         s.s3_endpoint, access_key=s.s3_access_key, secret_key=s.s3_secret_key, secure=s.s3_secure
@@ -59,14 +59,14 @@ def _sweep(repo: FileRepo) -> None:
     have left behind."""
     bucket = get_settings().s3_bucket
     for key in repo.sweep_pending():
-        # Exception, not S3Error: an unreachable MinIO raises urllib3's
+        # Exception, not S3Error: an unreachable store raises urllib3's
         # MaxRetryError, which is no relation to S3Error. The sweep is
         # opportunistic cleanup riding along on a listing that needs no object
         # storage at all, so it must never be what fails that listing (§12).
         # ponytail: sweep_pending commits the row DELETEs before these removes,
         # so an outage here orphans the bytes; deleting the object first would close it.
         with suppress(Exception):
-            minio_client().remove_object(bucket, key)
+            s3_client().remove_object(bucket, key)
 
 
 @router.get("", response_model=list[FileInfo])
@@ -188,7 +188,7 @@ def upload_file(
         ) from e
 
     try:
-        written = minio_client().put_object(
+        written = s3_client().put_object(
             settings.s3_bucket, row.object_key, file.file, length=size, content_type=content_type
         )
     except S3Error as e:
@@ -225,7 +225,7 @@ def _append_version(
         )
 
     try:
-        written = minio_client().put_object(
+        written = s3_client().put_object(
             settings.s3_bucket,
             existing.object_key,
             file.file,
@@ -288,7 +288,7 @@ def _validated_tags(raw: list[str]) -> list[str]:
 def update_file(
     claims: Claims, repo: FileRepo, folders: FolderRepo, file_id: uuid.UUID, body: FilePatch
 ) -> FileInfo:
-    """Rename, describe, retag and move in one call. Metadata only: no MinIO
+    """Rename, describe, retag and move in one call. Metadata only: no storage
     call, because the object key is the id."""
     sub = claims["sub"]
     row = repo.get(sub, file_id)
@@ -368,7 +368,7 @@ def download_file(
     served_type = row.content_type if renderable else "application/octet-stream"
 
     try:
-        obj = minio_client().get_object(settings.s3_bucket, row.object_key)
+        obj = s3_client().get_object(settings.s3_bucket, row.object_key)
     except S3Error as e:
         if e.code == "NoSuchKey":
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No such file") from e

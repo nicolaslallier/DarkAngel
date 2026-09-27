@@ -2,7 +2,7 @@
 
 Originally: `_key()` concatenated the caller's `sub` with the upload's
 filename, so `..` or a slash in that filename could escape the owner's prefix,
-and had to be rejected before anything reached MinIO.
+and had to be rejected before anything reached object storage.
 
 Since the metadata moved to Postgres the object key is `<sub>/<uuid>` and the
 filename is only ever a display string, so traversal is structurally
