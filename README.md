@@ -125,8 +125,9 @@ The **Files** page (`/files`) keeps your home files in the Infra SeaweedFS. Each
 signed-in user sees only their own: the API (`/api/files`) stores them under
 their Keycloak `sub` in bucket `darkangel-files`, as the S3 identity
 `darkangel`, over `http://s3:8333` on `infra-net`. The browser never talks to
-object storage directly. Uploads are capped at 100 MB by the Infra NGINX
-(`client_max_body_size` in `deploy/nginx/darkangel.conf`). The bucket is
+object storage directly. Uploads are capped at 5 GB per file, both by the API
+(`max_upload_bytes`) and by the Infra NGINX (`client_max_body_size` in
+`deploy/nginx/darkangel.conf`, copied to Infra's `nginx/conf.d/`). The bucket is
 versioned: the API refuses an upload the store returns no version id for.
 
 **One-time setup:** on the Docker host, in the Infra repo, set
