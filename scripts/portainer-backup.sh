@@ -19,8 +19,15 @@ is_set() { [ -n "${1:-}" ] && [ "$1" != change-me ]; }
 valid_name() { case "$1" in ''|*[!A-Z0-9_]*) return 1 ;; *) return 0 ;; esac; }
 slug() { printf '%s' "$1" | tr 'A-Z_' 'a-z-'; }
 backup_key() { printf '%s/%s.tar.gz.encrypted' "$(slug "$1")" "$2"; } # <NAME> <timestamp>
-backup_body() { jq -n --arg p "$1" '{password: $p}'; }
+# The password goes to jq through its environment, not --arg: jq is an external
+# process, so an argument would show up in `ps`.
+backup_body() { P="$1" jq -n '{password: env.P}'; }
 inst_var() { local v="PORTAINER_${1}_${2}"; printf '%s' "${!v:-}"; } # <NAME> <SUFFIX>
+# A real archive is binary. A 200 carrying a web page or JSON is an SSO/proxy
+# login page or an API error, which must never be uploaded as a backup.
+is_archive_type() { # <content-type>
+  case "$1" in application/gzip*|application/x-gzip*|application/octet-stream*|application/x-tar*) return 0 ;; *) return 1 ;; esac
+}
 stamp() { date -u +%Y%m%dT%H%M%SZ; }
 
 selftest() {
@@ -36,6 +43,12 @@ selftest() {
   PORTAINER_T_URL=https://t.example
   check inst_var "$(inst_var T URL)" https://t.example
   check inst_var-unset "$(inst_var T NOPE)" ""
+  for n in application/gzip application/octet-stream application/x-tar 'application/gzip; charset=binary'; do
+    is_archive_type "$n" || die "selftest: is_archive_type rejected '$n'"
+  done
+  for n in text/html 'text/html; charset=utf-8' application/json application/xhtml+xml ''; do
+    ! is_archive_type "$n" || die "selftest: is_archive_type accepted '$n'"
+  done
   ! is_set change-me || die "selftest: is_set accepted change-me"
   ! is_set "" || die "selftest: is_set accepted empty"
   is_set x || die "selftest: is_set rejected x"
@@ -47,7 +60,8 @@ selftest() {
 }
 
 # One call to instance <NAME>'s API. Prints the response; with PAPI_OUT=<file>
-# it is written there instead (the backup archive is binary). Reports on stderr
+# it is written there instead (the backup archive is binary) and the content
+# type is printed. Reports on stderr
 # and returns 1 rather than exiting, so a bad instance never stops the loop.
 # The key reaches curl through a 0600 -K file, never an argument.
 papi() { # <NAME> <METHOD> <PATH> [json-body]
@@ -60,7 +74,7 @@ papi() { # <NAME> <METHOD> <PATH> [json-body]
   cfg="$(mktemp)"
   printf 'header = "X-API-Key: %s"\n' "$key" >"$cfg"
   local args=(-sS -K "$cfg" -X "$2" -H "Content-Type: application/json" --data-binary @-)
-  if [ -n "${PAPI_OUT:-}" ]; then args+=(--fail -o "$PAPI_OUT"); else args+=(--fail-with-body); fi
+  if [ -n "${PAPI_OUT:-}" ]; then args+=(--fail -o "$PAPI_OUT" -w '%{content_type}'); else args+=(--fail-with-body); fi
   if [ "$(inst_var "$n" INSECURE)" = true ]; then args+=(-k); fi
   set +e
   out="$(printf '%s' "${4:-}" | curl "${args[@]}" "${url%/}/api$3" 2>&1)"
@@ -72,7 +86,7 @@ papi() { # <NAME> <METHOD> <PATH> [json-body]
     note "$n: $2 $3 failed ($url)" >&2
     return 1
   fi
-  if [ -z "${PAPI_OUT:-}" ]; then printf '%s' "$out"; fi
+  printf '%s' "$out" # the response, or with PAPI_OUT its content type
 }
 
 cmd_list() {
@@ -102,10 +116,14 @@ aws_cli() { # <env-file> <aws args...>
 # The scratch file only ever holds Portainer's encrypted archive. An HTTP error
 # or an empty body stops here, before anything is uploaded.
 backup_one() { # <NAME> <timestamp> <aws-env-file> <scratch-file>
-  local n="$1" key size
+  local n="$1" key size ctype
   key="$(backup_key "$n" "$2")"
   : >"$4"
-  PAPI_OUT="$4" papi "$n" POST /backup "$(backup_body "$PORTAINER_BACKUP_PASSWORD")" || return 1
+  ctype="$(PAPI_OUT="$4" papi "$n" POST /backup "$(backup_body "$PORTAINER_BACKUP_PASSWORD")")" || return 1
+  if ! is_archive_type "$ctype"; then
+    note "$n: Portainer answered '$ctype', not an archive (login page or proxy in the way?)" >&2
+    return 1
+  fi
   if [ ! -s "$4" ]; then note "$n: Portainer returned an empty archive" >&2; return 1; fi
   if ! aws_cli "$3" s3 cp - "s3://$S3_BACKUP_BUCKET/$key" <"$4" >/dev/null; then
     note "$n: upload to s3://$S3_BACKUP_BUCKET/$key failed" >&2; return 1
