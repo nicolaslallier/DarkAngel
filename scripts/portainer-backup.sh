@@ -28,6 +28,8 @@ inst_var() { local v="PORTAINER_${1}_${2}"; printf '%s' "${!v:-}"; } # <NAME> <S
 is_archive_type() { # <content-type>
   case "$1" in application/gzip*|application/x-gzip*|application/octet-stream*|application/x-tar*) return 0 ;; *) return 1 ;; esac
 }
+# Escape a value for a double-quoted curl -K config string.
+curl_quote() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 stamp() { date -u +%Y%m%dT%H%M%SZ; }
 
 selftest() {
@@ -40,6 +42,7 @@ selftest() {
   check slug "$(slug MY_BOX)" my-box
   check backup_key "$(backup_key MY_BOX 20261010T120000Z)" my-box/20261010T120000Z.tar.gz.encrypted
   check backup_body "$(backup_body 'p"w\x y' | jq -r .password)" 'p"w\x y'
+  check curl_quote "$(curl_quote 'ab"c\d')" 'ab\"c\\d'
   PORTAINER_T_URL=https://t.example
   check inst_var "$(inst_var T URL)" https://t.example
   check inst_var-unset "$(inst_var T NOPE)" ""
@@ -71,10 +74,10 @@ papi() { # <NAME> <METHOD> <PATH> [json-body]
     note "$n: set PORTAINER_${n}_URL and PORTAINER_${n}_API_KEY in .portainers.env" >&2
     return 1
   fi
-  cfg="$(mktemp)"
-  printf 'header = "X-API-Key: %s"\n' "$key" >"$cfg"
+  cfg="$(mktemp "$WORK/cfg.XXXXXX")"
+  printf 'header = "X-API-Key: %s"\n' "$(curl_quote "$key")" >"$cfg"
   local args=(-sS -K "$cfg" -X "$2" -H "Content-Type: application/json" --data-binary @-)
-  if [ -n "${PAPI_OUT:-}" ]; then args+=(--fail -o "$PAPI_OUT" -w '%{content_type}'); else args+=(--fail-with-body); fi
+  if [ -n "${PAPI_OUT:-}" ]; then args+=(--fail-with-body -o "$PAPI_OUT" -w '%{content_type}'); else args+=(--fail-with-body); fi
   if [ "$(inst_var "$n" INSECURE)" = true ]; then args+=(-k); fi
   set +e
   out="$(printf '%s' "${4:-}" | curl "${args[@]}" "${url%/}/api$3" 2>&1)"
@@ -83,6 +86,10 @@ papi() { # <NAME> <METHOD> <PATH> [json-body]
   rm -f "$cfg"
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "$out" >&2
+    # With PAPI_OUT, Portainer's error body went to the file, not to $out.
+    if [ -n "${PAPI_OUT:-}" ] && [ -s "$PAPI_OUT" ]; then
+      head -c 500 "$PAPI_OUT" >&2; printf '\n' >&2; : >"$PAPI_OUT"
+    fi
     note "$n: $2 $3 failed ($url)" >&2
     return 1
   fi
@@ -130,6 +137,10 @@ backup_one() { # <NAME> <timestamp> <aws-env-file> <scratch-file>
   fi
   size="$(aws_cli "$3" s3api head-object --bucket "$S3_BACKUP_BUCKET" --key "$key" \
     --query ContentLength --output text </dev/null)" || size=""
+  if [ -z "$size" ]; then
+    note "$n: uploaded $key but could not verify its size; left in place" >&2
+    return 1
+  fi
   if [ "$size" != "$(wc -c <"$4" | tr -d ' ')" ]; then
     note "$n: uploaded size '$size' does not match the archive; removing $key" >&2
     aws_cli "$3" s3 rm "s3://$S3_BACKUP_BUCKET/$key" </dev/null >/dev/null || true
@@ -146,9 +157,7 @@ cmd_backup() {
     is_set "${!v:-}" || die "set $v in .portainers.env"
   done
   command -v docker >/dev/null || die "missing: docker"
-  # Globals, not locals: the EXIT trap runs after this function has returned.
-  AWS_ENV="$(mktemp)"; SCRATCH="$(mktemp)"
-  trap 'rm -f "$AWS_ENV" "$SCRATCH"' EXIT
+  AWS_ENV="$WORK/aws.env"; SCRATCH="$WORK/archive"
   printf 'AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\nAWS_DEFAULT_REGION=us-east-1\nAWS_EC2_METADATA_DISABLED=true\n' \
     "$S3_BACKUP_ACCESS_KEY" "$S3_BACKUP_SECRET_KEY" >"$AWS_ENV"
   ts="$(stamp)"
@@ -176,6 +185,13 @@ for n in $PORTAINERS; do
   valid_name "$n" || die "bad instance name '$n' in PORTAINERS (use A-Z, 0-9 and _)"
 done
 PORTAINER_NETWORK="${PORTAINER_NETWORK:-infra-net}"
+
+# Everything temporary (curl key files, S3 credentials, the archive) lives in one
+# 0700 directory removed on exit. INT/TERM/HUP exit through the trap too, so an
+# interrupted run does not leave an API key behind.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/portainer-backup.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+trap 'exit 1' INT TERM HUP
 
 case "$cmd" in
   list) cmd_list ;;
