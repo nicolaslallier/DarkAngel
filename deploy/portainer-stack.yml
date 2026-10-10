@@ -8,6 +8,9 @@
 #   IMAGE_TAG      image tag to run            (default: latest)
 #   S3_SECRET_KEY     secret of S3 identity darkangel (Infra: make s3-provision)
 #   POSTGRES_PASSWORD password of the darkangel database role (see `make postgres`)
+#   PORTAINER_INSTANCES  JSON list of Portainer instances the collector polls
+#                     (name, url, api_key); see docs/dashboard.md
+#   BACKUP_S3_SECRET_KEY secret of the read-only S3 identity portainer-backups-ro
 #
 # The GitHub Actions deploy workflow pushes new images and then calls this
 # stack's webhook, which re-pulls the tag and recreates the services.
@@ -61,6 +64,25 @@ services:
     # `backend` alias would collide with the next stack's. The API router is
     # mounted at /api (backend/app/api/router.py), so the vhost passes the
     # prefix straight through.
+    networks:
+      - infra-net
+
+  # Polls the Portainer instances and the portainer-backups bucket every five
+  # minutes and writes what it saw to PostgreSQL; the dashboard reads that. It
+  # is the only service that holds Portainer API keys (Docker-root tokens).
+  # No migration here: darkangel-api runs `alembic upgrade head`. On the very
+  # first deploy a pass can fail for want of the tables -- it logs and retries.
+  darkangel-collector:
+    image: ghcr.io/${IMAGE_OWNER:-nicolaslallier}/darkangel-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: ["python", "-m", "app.collector"]
+    # The image's HEALTHCHECK probes port 8000, which this process never opens.
+    healthcheck:
+      disable: true
+    environment:
+      DARKANGEL_DATABASE_URL: postgresql+psycopg://darkangel:${POSTGRES_PASSWORD:-}@postgres:5432/darkangel
+      DARKANGEL_PORTAINER_INSTANCES: ${PORTAINER_INSTANCES:-[]}
+      DARKANGEL_BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
     networks:
       - infra-net
 

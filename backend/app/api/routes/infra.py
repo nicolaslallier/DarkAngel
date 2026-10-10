@@ -1,0 +1,82 @@
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+from app.core.clock import Now
+from app.core.config import get_settings
+from app.core.household import Reader
+from app.models.infra import BackupStatus
+from app.repositories.infra import InfraRepo
+
+router = APIRouter(tags=["infra"])
+
+
+class InstanceStatus(BaseModel):
+    name: str
+    reachable: bool
+    version: str | None
+    environments: int | None
+    stacks: int | None
+    checked_at: datetime
+    error: str | None
+
+
+class BackupInfo(BaseModel):
+    instance: str
+    last_backup_at: datetime | None
+    size_bytes: int | None
+    age_hours: float | None
+    stale: bool
+    checked_at: datetime
+
+
+class Infra(BaseModel):
+    instances: list[InstanceStatus]
+    backups: list[BackupInfo]
+
+
+def _backup(row: BackupStatus, now: datetime, max_age_hours: int) -> BackupInfo:
+    age = None if row.last_backup_at is None else (now - row.last_backup_at).total_seconds() / 3600
+    return BackupInfo(
+        instance=row.instance,
+        last_backup_at=row.last_backup_at,
+        size_bytes=row.size_bytes,
+        age_hours=None if age is None else round(age, 1),
+        # No archive at all counts as stale.
+        stale=age is None or age > max_age_hours,
+        checked_at=row.checked_at,
+    )
+
+
+# One collector pass shares one `now`; rows further behind the newest reading
+# belong to an instance that left the config.
+CURRENT = timedelta(minutes=15)
+
+
+def _current(rows: list) -> list:
+    if not rows:
+        return rows
+    cutoff = max(r.checked_at for r in rows) - CURRENT
+    return [r for r in rows if r.checked_at >= cutoff]
+
+
+@router.get("/infra", response_model=Infra)
+def infra(ctx: Reader, repo: InfraRepo, now: Now) -> Infra:
+    max_age = get_settings().backup_max_age_hours
+    statuses, backups = _current(repo.latest_statuses()), _current(repo.latest_backups())
+    return Infra(
+        instances=[
+            InstanceStatus(
+                name=s.instance,
+                reachable=s.reachable,
+                version=s.version,
+                environments=s.environments,
+                stacks=s.stacks,
+                checked_at=s.checked_at,
+                error=s.error,
+            )
+            for s in statuses
+        ],
+        backups=[_backup(b, now, max_age) for b in backups],
+    )

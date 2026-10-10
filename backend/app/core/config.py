@@ -1,12 +1,32 @@
 from functools import lru_cache
 
+from pydantic import BaseModel, ConfigDict, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class PortainerInstance(BaseModel):
+    """One Portainer the collector polls. `name` becomes the bucket prefix the
+    backup script writes to (lower-cased, `_` to `-`)."""
+
+    # SecretStr masks repr/dump; hide_input_in_errors keeps the raw dict (with the
+    # key) out of a ValidationError message.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    name: str
+    url: str
+    api_key: SecretStr
+    insecure: bool = False  # self-signed certificate
 
 
 class Settings(BaseSettings):
     """Application settings, overridable via environment variables or a .env file."""
 
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="DARKANGEL_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="DARKANGEL_",
+        extra="ignore",
+        hide_input_in_errors=True,  # a bad portainer_instances must not echo its keys
+    )
 
     app_name: str = "DarkAngel API"
     version: str = "0.1.0"
@@ -41,6 +61,21 @@ class Settings(BaseSettings):
     # no summaries. The stack points it at the Ollama on the Mac at 192.168.2.35.
     ollama_url: str = ""
     ollama_model: str = "gemma4:26b-a4b-it-qat"
+
+    # The collector (python -m app.collector). It is the only process that gets
+    # Portainer API keys -- Docker-root tokens -- so darkangel-api leaves
+    # `portainer_instances` empty. A JSON list in the environment.
+    portainer_instances: list[PortainerInstance] = []
+    # The archives scripts/portainer-backup.sh writes, read with a read-only
+    # identity (Infra: `make s3-provision`, see docs/dashboard.md).
+    backup_s3_endpoint: str = "s3:8333"
+    backup_s3_secure: bool = False
+    backup_s3_bucket: str = "portainer-backups"
+    backup_s3_access_key: str = "portainer-backups-ro"
+    backup_s3_secret_key: SecretStr = SecretStr("")
+    # Older than this = the dashboard marks the backup stale. Read by the API.
+    backup_max_age_hours: int = 48
+    collector_interval_seconds: int = 300
 
     # Upload guards. Both are refused with 413: one file over the first, or a
     # file that would push the owner's total over the second.
