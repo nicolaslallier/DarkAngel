@@ -67,6 +67,8 @@ def metric_range(
         series = _db_series(repo.status_history(start), lambda r: 1.0 if r.reachable else 0.0)
     elif panel == "portainer-stacks":
         series = _db_series(repo.status_history(start), lambda r: r.stacks)
-    else:
+    elif panel == "portainer-backup-size":
         series = _db_series(repo.backup_history(start), lambda r: r.size_bytes)
+    else:
+        raise HTTPException(500, "unhandled panel")
     return RangeResult(panel=panel, range=range, series=series)

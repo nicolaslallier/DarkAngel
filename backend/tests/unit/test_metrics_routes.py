@@ -123,3 +123,12 @@ def test_portainer_panels_read_the_infra_history(home, infra, prom):
 
 def test_portainer_panel_with_no_rows_yet_is_empty(home, infra, prom):
     assert get("portainer-up").json()["series"] == []
+
+
+def test_db_panel_without_a_handler_is_a_500_not_other_data(home, infra, prom, monkeypatch):
+    from app.metrics import catalog
+
+    orphan = catalog.Panel("zz-db", "Z", "portainer", "count", "db")
+    monkeypatch.setattr(catalog, "get", lambda panel_id: orphan)
+
+    assert get("zz-db").status_code == 500

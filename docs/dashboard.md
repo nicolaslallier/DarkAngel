@@ -97,12 +97,14 @@ on the Docker host.
 If Prometheus is down, only the Host and Containers panels go blank (the endpoint
 answers 502). The Portainer row reads PostgreSQL and keeps working.
 
-Adding a panel: add one entry to `PANELS` in `backend/app/metrics/catalog.py`,
-then add its id to the pinned list in `backend/tests/regression/test_metrics_catalog.py`.
+Adding a panel: a prom panel is one entry in `PANELS` in
+`backend/app/metrics/catalog.py` plus its id in the pinned list in
+`backend/tests/regression/test_metrics_catalog.py`; a db panel also needs a branch
+in `backend/app/api/routes/metrics.py` (an unhandled one answers 500).
 The OpenAPI snapshot does not change, because the panel ids are not part of the
 response schema.
 
-History: the Portainer row is limited to the collector's 30-day retention, so
-even the 7d range shows at most the last 30 days of it. How far back Prometheus
+History: Portainer history is kept 30 days by the collector, which is longer than
+any range offered (max 7d). How far back Prometheus
 keeps the Host and Containers data is set in the Prometheus configuration, which
 this repo does not contain (**not verified**).

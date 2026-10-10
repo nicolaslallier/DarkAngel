@@ -14,7 +14,10 @@ const REFRESH = [
 ]
 const TITLES = { host: 'Host', containers: 'Containers', portainer: 'Portainer' }
 
-onMounted(() => void store.load())
+onMounted(() => {
+  void store.load()
+  store.setRefresh(store.refreshSeconds) // the store outlives the page: re-arm the saved timer
+})
 onBeforeUnmount(() => store.stop())
 </script>
 

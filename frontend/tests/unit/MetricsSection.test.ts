@@ -50,3 +50,22 @@ it('stops the refresh timer when it unmounts', async () => {
 
   expect(stop).toHaveBeenCalled()
 })
+
+it('re-arms the refresh timer when it mounts again with a saved interval', async () => {
+  vi.useFakeTimers()
+  try {
+    const first = mount(MetricsSection)
+    await flushPromises()
+    useMetricsStore().setRefresh(30)
+    first.unmount()
+    mount(MetricsSection)
+    await flushPromises()
+    vi.mocked(getRange).mockClear()
+
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    expect(getRange).toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
+})
