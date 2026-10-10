@@ -724,6 +724,16 @@ class FakeInfraRepository:
     def latest_backups(self):
         return self._latest(self.backups)
 
+    def status_history(self, since):
+        return sorted(
+            (r for r in self.statuses if r.checked_at >= since), key=lambda r: r.checked_at
+        )
+
+    def backup_history(self, since):
+        return sorted(
+            (r for r in self.backups if r.checked_at >= since), key=lambda r: r.checked_at
+        )
+
     def prune(self, before):
         count = len(self.statuses) + len(self.backups)
         self.statuses = [r for r in self.statuses if r.checked_at >= before]
