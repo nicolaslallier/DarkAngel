@@ -155,6 +155,31 @@ deploy on SeaweedFS, run `PGADMIN_URL=... CONFIRM=darkangel make files-reset` to
 drop the metadata of files whose bytes stayed behind — run after, it would also
 wipe anything uploaded since. Then deploy, upload a file and download it back.
 
+## Service providers
+
+The **Providers** page (`/providers`) tracks the household's service providers
+(Hydro, Bell, ...), their services, invoices, upcoming dues and cost alerts.
+People form a household and share its data. An uploaded invoice PDF is read by
+Ollama, then waits in the review queue until someone validates it by hand; it
+is never saved as validated without that step.
+
+- **Roles:** `owner` manages the household (invitations, members, roles,
+  deletion), `member` manages providers, services and invoices, `viewer` is
+  read-only.
+- **Invoice PDFs** are ordinary files of the person who uploaded them. Every
+  member of the household, read-only members included, can read one through its
+  invoice (`GET /api/invoices/{id}/pdf`), even after the uploader leaves. Other
+  files stay private. An invoice shows the uploader's *current* file of that
+  name: a later upload of the same name to the Files root by the uploader
+  changes what the invoice shows.
+- **Reading** needs `DARKANGEL_OLLAMA_URL` (see Files). Without it, uploaded
+  invoices go straight to the review queue to be filled in by hand.
+- **Invitations:** links are single-use, expire after 7 days and carry the token
+  in the URL fragment. There is currently no way to revoke an unused link before
+  it expires. The join page asks for a confirmation click.
+- Email and push reminders are not part of this feature (see
+  `docs/infra-feature-request-notifications.md`).
+
 ## Deployment
 
 GitHub Actions builds both services as container images and tells a local

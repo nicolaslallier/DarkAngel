@@ -1,7 +1,8 @@
+import secrets
 import time
 import uuid
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from textwrap import shorten
 from types import SimpleNamespace
 
@@ -12,10 +13,21 @@ from minio.error import S3Error
 
 from app.api.routes import files
 from app.core import auth
+from app.core.clock import today
 from app.main import app
 from app.models.files import File, Folder
+from app.models.households import Household, HouseholdMember
+from app.models.providers import Invoice, InvoiceTax, Provider, Service
 from app.repositories.files import NameTaken, QuotaExceeded, file_repository
 from app.repositories.folders import folder_repository
+from app.repositories.households import (
+    INVITATION_TTL,
+    AlreadyMember,
+    InvitationInvalid,
+    household_repository,
+)
+from app.repositories.invoices import invoice_repository
+from app.repositories.providers import provider_repository
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 ISSUER = "https://keycloak.famillelallier.net/realms/ea"
@@ -353,3 +365,301 @@ def repo():
     yield fake
     app.dependency_overrides.pop(file_repository, None)
     app.dependency_overrides.pop(folder_repository, None)
+
+
+class FakeHouseholdRepository:
+    """HouseholdRepository over dicts. `add_member` is test-only sugar."""
+
+    def __init__(self):
+        self.households: dict[uuid.UUID, Household] = {}
+        self._members: dict[str, HouseholdMember] = {}
+        self.tokens: dict[str, dict] = {}
+
+    def membership(self, sub):
+        return self._members.get(sub)
+
+    def get(self, household_id):
+        return self.households.get(household_id)
+
+    def members(self, household_id):
+        return [m for m in self._members.values() if m.household_id == household_id]
+
+    def add_member(self, household_id, sub, role, display_name=None):
+        member = HouseholdMember(
+            sub=sub, household_id=household_id, role=role, display_name=display_name
+        )
+        self._members[sub] = member
+        return member
+
+    def create(self, sub, name, display_name=None):
+        if sub in self._members:
+            raise AlreadyMember
+        household = Household(id=uuid.uuid4(), name=name)
+        self.households[household.id] = household
+        self.add_member(household.id, sub, "owner", display_name)
+        return household
+
+    def set_role(self, household_id, sub, role):
+        member = self._members.get(sub)
+        if member is None or member.household_id != household_id:
+            return None
+        member.role = role
+        return member
+
+    def remove(self, household_id, sub):
+        member = self._members.get(sub)
+        if member is None or member.household_id != household_id:
+            return False
+        del self._members[sub]
+        return True
+
+    def delete(self, household_id):
+        self.households.pop(household_id, None)
+        for sub in [s for s, m in self._members.items() if m.household_id == household_id]:
+            del self._members[sub]
+
+    def invite(self, household_id, role, created_by, ttl=INVITATION_TTL):
+        token = secrets.token_urlsafe(8)
+        self.tokens[token] = {
+            "household_id": household_id,
+            "role": role,
+            "expires_at": datetime.now(UTC) + ttl,
+            "used": False,
+        }
+        return token
+
+    def redeem(self, token, sub, display_name=None):
+        invitation = self.tokens.get(token)
+        if (
+            invitation is None
+            or invitation["used"]
+            or invitation["expires_at"] <= datetime.now(UTC)
+        ):
+            raise InvitationInvalid
+        if sub in self._members:
+            raise AlreadyMember
+        invitation["used"] = True
+        return self.add_member(invitation["household_id"], sub, invitation["role"], display_name)
+
+
+class FakeProviderRepository:
+    """ProviderRepository over lists. `invoices` is wired by the ledger fixture
+    once the invoice fake exists (Task 5); `invoices_for_service` is the
+    stand-in until then."""
+
+    def __init__(self):
+        self.providers: list[Provider] = []
+        self.service_rows: list[Service] = []
+        self.invoices = None
+
+    def list_providers(self, household_id):
+        rows = [p for p in self.providers if p.household_id == household_id]
+        return sorted(rows, key=lambda p: (p.name.lower(), p.id))
+
+    def get_provider(self, household_id, provider_id):
+        return next(
+            (p for p in self.providers if p.household_id == household_id and p.id == provider_id),
+            None,
+        )
+
+    def create_provider(self, household_id, **fields):
+        row = Provider(id=uuid.uuid4(), household_id=household_id, **fields)
+        self.providers.append(row)
+        return row
+
+    def update_provider(self, provider, **changes):
+        for field, value in changes.items():
+            setattr(provider, field, value)
+        return provider
+
+    def delete_provider(self, provider):
+        self.providers.remove(provider)
+
+    def services(self, household_id, provider_id=None, include_archived=False):
+        return [
+            s
+            for s in self.service_rows
+            if s.household_id == household_id
+            and (provider_id is None or s.provider_id == provider_id)
+            and (include_archived or not s.archived)
+        ]
+
+    def get_service(self, household_id, service_id):
+        return next(
+            (s for s in self.service_rows if s.household_id == household_id and s.id == service_id),
+            None,
+        )
+
+    def create_service(self, household_id, provider_id, **fields):
+        row = Service(id=uuid.uuid4(), household_id=household_id, provider_id=provider_id, **fields)
+        self.service_rows.append(row)
+        return row
+
+    def update_service(self, service, **changes):
+        for field, value in changes.items():
+            setattr(service, field, value)
+        return service
+
+    def delete_service(self, service):
+        self.service_rows.remove(service)
+
+    def service_has_invoices(self, service_id):
+        return any(i.service_id == service_id for i in self.invoices.rows)
+
+
+class FakeInvoiceRepository:
+    """InvoiceRepository over a list. Mirrors the SQL for the cases the
+    integration suite pins: scoped lists ordered by due date (undated last),
+    duplicates by (service, number), validated ordered oldest first."""
+
+    def __init__(self):
+        self.rows: list[Invoice] = []
+        self.tax_rows: dict[uuid.UUID, list[InvoiceTax]] = {}
+
+    def create(
+        self,
+        household_id,
+        *,
+        uploaded_by,
+        file_id,
+        service_id,
+        status,
+        extraction=None,
+        taxes=(),
+        **fields,
+    ):
+        row = Invoice(
+            id=uuid.uuid4(),
+            household_id=household_id,
+            uploaded_by=uploaded_by,
+            file_id=file_id,
+            service_id=service_id,
+            status=status,
+            extraction=extraction,
+            error=None,
+            paid_at=None,
+            **fields,
+        )
+        self.rows.append(row)
+        self._set_taxes(row, taxes)
+        return row
+
+    def _set_taxes(self, row, taxes):
+        self.tax_rows.pop(row.id, None)
+        if taxes:
+            self.tax_rows[row.id] = [
+                InvoiceTax(id=uuid.uuid4(), invoice_id=row.id, **t) for t in taxes
+            ]
+
+    def get(self, household_id, invoice_id):
+        return next(
+            (r for r in self.rows if r.household_id == household_id and r.id == invoice_id),
+            None,
+        )
+
+    def by_id(self, invoice_id):
+        return next((r for r in self.rows if r.id == invoice_id), None)
+
+    def list(self, household_id, *, status=None, service_id=None):
+        rows = [
+            r
+            for r in self.rows
+            if r.household_id == household_id
+            and (status is None or r.status == status)
+            and (service_id is None or r.service_id == service_id)
+        ]
+        # Stable: ties keep creation order, like ORDER BY due_on NULLS LAST, created_at.
+        return sorted(rows, key=lambda r: (r.due_on is None, r.due_on or date.min))
+
+    def taxes_by_invoice(self, invoice_ids):
+        return {i: self.tax_rows[i] for i in invoice_ids if i in self.tax_rows}
+
+    def find_duplicate(self, service_id, invoice_number, exclude_id=None):
+        return next(
+            (
+                r
+                for r in self.rows
+                if r.service_id == service_id
+                and r.invoice_number == invoice_number
+                and r.id != exclude_id
+            ),
+            None,
+        )
+
+    def validate(self, invoice, *, service_id, fields, taxes):
+        for field, value in fields.items():
+            setattr(invoice, field, value)
+        invoice.service_id = service_id
+        invoice.status = "validated"
+        invoice.error = None
+        self._set_taxes(invoice, taxes)
+        return invoice
+
+    def set_paid(self, invoice, paid_at):
+        invoice.paid_at = paid_at
+
+    def delete(self, invoice):
+        self.rows.remove(invoice)
+        self.tax_rows.pop(invoice.id, None)
+
+    def validated(self, household_id, service_id=None):
+        rows = [
+            r
+            for r in self.rows
+            if r.household_id == household_id
+            and r.status == "validated"
+            and (service_id is None or r.service_id == service_id)
+        ]
+        return sorted(rows, key=lambda r: (r.issued_on or r.due_on, str(r.id)))
+
+    def set_status(self, invoice, status):
+        invoice.status = status
+
+    def finish(self, invoice, status, *, extraction=None, error=None, fields=None):
+        if invoice.status not in ("queued", "extracting"):
+            return False
+        for field, value in (fields or {}).items():
+            setattr(invoice, field, value)
+        invoice.status = status
+        invoice.extraction = extraction if extraction is not None else invoice.extraction
+        invoice.error = error
+        return True
+
+    def reset_stuck(self):
+        stuck = [r for r in self.rows if r.status in ("queued", "extracting")]
+        for row in stuck:
+            row.status, row.error = "failed", "Interrupted by a restart"
+        return len(stuck)
+
+
+@pytest.fixture
+def ledger():
+    """Swap the household, provider and invoice repositories for in-memory
+    fakes. Explicit, never autouse."""
+    fake = SimpleNamespace(
+        households=FakeHouseholdRepository(),
+        providers=FakeProviderRepository(),
+        invoices=FakeInvoiceRepository(),
+    )
+    fake.providers.invoices = fake.invoices
+    app.dependency_overrides[household_repository] = lambda: fake.households
+    app.dependency_overrides[provider_repository] = lambda: fake.providers
+    app.dependency_overrides[invoice_repository] = lambda: fake.invoices
+    yield fake
+    for dependency in (household_repository, provider_repository, invoice_repository):
+        app.dependency_overrides.pop(dependency, None)
+
+
+@pytest.fixture
+def home(ledger):
+    """user-1 owns a household called Maison."""
+    household = ledger.households.create("user-1", "Maison")
+    return SimpleNamespace(id=household.id, ledger=ledger)
+
+
+@pytest.fixture
+def clock():
+    """Today is 2026-10-10 for the length of the test."""
+    app.dependency_overrides[today] = lambda: date(2026, 10, 10)
+    yield date(2026, 10, 10)
+    app.dependency_overrides.pop(today, None)

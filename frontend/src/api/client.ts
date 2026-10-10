@@ -19,6 +19,8 @@ export class ApiError extends Error {
 function messageOf(body: unknown, fallback: string): string {
   const detail = (body as { detail?: unknown } | null)?.detail
   if (typeof detail === 'string') return detail
+  const message = (detail as { message?: unknown } | undefined)?.message
+  if (typeof message === 'string') return message
   if (Array.isArray(detail)) return detail.map((d: { msg?: string }) => d.msg).join('; ')
   return fallback
 }
@@ -50,4 +52,11 @@ export async function apiRequest(
 
 export async function apiGet<T>(path: string): Promise<T> {
   return (await (await apiRequest('GET', path)).json()) as T
+}
+
+/** JSON in, JSON out. A DELETE or a 204 has no body: use apiRequest for those. */
+export async function apiSend<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const json = body === undefined ? undefined : JSON.stringify(body)
+  const response = await apiRequest(method, path, json, json === undefined ? undefined : 'application/json')
+  return (await response.json()) as T
 }

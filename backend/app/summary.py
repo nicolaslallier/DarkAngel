@@ -213,9 +213,13 @@ def material(
     return (_document_prompt(name, text), []) if text and text.strip() else None
 
 
-def ask_ollama(prompt: str, images: Sequence[bytes] = ()) -> str:
+def ask_ollama(prompt: str, images: Sequence[bytes] = (), *, as_json: bool = False) -> str:
+    """`as_json` asks Ollama for a JSON object (`format: json`) and keeps the
+    whole answer: truncating it to MAX_SUMMARY would cut the JSON in half."""
     settings = get_settings()
     body = {"model": settings.ollama_model, "prompt": prompt, "stream": False}
+    if as_json:
+        body["format"] = "json"
     if images:
         body["images"] = [base64.b64encode(image).decode() for image in images]
     request = urllib.request.Request(
@@ -226,7 +230,8 @@ def ask_ollama(prompt: str, images: Sequence[bytes] = ()) -> str:
     # A big model on a Mac takes its time; this only ever holds a background task.
     with urllib.request.urlopen(request, timeout=600) as response:
         reply = json.load(response)["response"]
-    return _THINKING.sub("", reply).strip()[:MAX_SUMMARY]
+    answer = _THINKING.sub("", reply).strip()
+    return answer if as_json else answer[:MAX_SUMMARY]
 
 
 def summarize(

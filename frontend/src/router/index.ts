@@ -9,6 +9,24 @@ export const router = createRouter({
     { path: '/', name: 'home', component: HomeView },
     // Lazy-loaded so it ships in its own chunk.
     { path: '/files', name: 'files', component: () => import('@/views/FilesView.vue') },
+    { path: '/providers', name: 'providers', component: () => import('@/views/ProvidersView.vue') },
+    {
+      path: '/providers/:id',
+      name: 'provider',
+      component: () => import('@/views/ProviderView.vue'),
+    },
+    { path: '/services/:id', name: 'service', component: () => import('@/views/ServiceView.vue') },
+    {
+      path: '/invoices/review',
+      name: 'invoice-review',
+      component: () => import('@/views/ReviewView.vue'),
+    },
+    { path: '/household', name: 'household', component: () => import('@/views/HouseholdView.vue') },
+    {
+      path: '/household/join',
+      name: 'household-join',
+      component: () => import('@/views/JoinView.vue'),
+    },
     { path: '/about', name: 'about', component: () => import('@/views/AboutView.vue') },
     {
       path: '/auth/callback',

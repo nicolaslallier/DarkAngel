@@ -7,6 +7,8 @@ import { signOut } from '@/auth'
     <nav>
       <RouterLink to="/">Home</RouterLink>
       <RouterLink to="/files">Files</RouterLink>
+      <RouterLink to="/providers">Providers</RouterLink>
+      <RouterLink to="/household">Household</RouterLink>
       <RouterLink to="/about">About</RouterLink>
       <button type="button" class="sign-out" @click="signOut">Sign out</button>
     </nav>

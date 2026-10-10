@@ -8,6 +8,7 @@ from contextlib import nullcontext
 import pytest
 from fastapi.testclient import TestClient
 
+from app import invoice_extraction as ie
 from app import summary
 from app.core.config import get_settings
 from app.main import app
@@ -210,6 +211,47 @@ def test_ask_ollama_sends_images_and_drops_the_thinking(monkeypatch):
     assert sent["url"] == "http://ollama:11434/api/generate"
     assert sent["body"]["stream"] is False
     assert sent["body"]["images"] == [base64.b64encode(b"JPEG").decode()]
+
+
+def answering(monkeypatch, response):
+    monkeypatch.setattr(get_settings(), "ollama_url", "http://ollama:11434")
+    sent = {}
+
+    def urlopen(request, timeout):
+        sent["body"] = json.loads(request.data)
+        return nullcontext(io.BytesIO(json.dumps({"response": response}).encode()))
+
+    monkeypatch.setattr(summary.urllib.request, "urlopen", urlopen)
+    return sent
+
+
+def test_ask_ollama_as_json_asks_for_json_and_keeps_the_whole_reply(monkeypatch):
+    long = '{"note": "' + "x" * (summary.MAX_SUMMARY + 500) + '"}'
+    sent = answering(monkeypatch, "<think>hmm</think>" + long)
+
+    assert summary.ask_ollama("Read", as_json=True) == long
+    assert sent["body"]["format"] == "json"
+
+
+def test_ask_ollama_still_truncates_a_plain_summary(monkeypatch):
+    sent = answering(monkeypatch, "y" * (summary.MAX_SUMMARY + 500))
+
+    assert summary.ask_ollama("Summarize") == "y" * summary.MAX_SUMMARY
+    assert "format" not in sent["body"]
+
+
+@pytest.mark.parametrize("reply", ["not json at all", "[1, 2]"])
+def test_the_invoice_ask_rejects_a_reply_that_is_not_a_json_object(monkeypatch, reply):
+    answering(monkeypatch, reply)
+
+    with pytest.raises(ie.ReadError):
+        ie._ask("Bell 12 $")
+
+
+def test_the_invoice_ask_returns_the_object(monkeypatch):
+    answering(monkeypatch, '{"total": 12}')
+
+    assert ie._ask("Bell 12 $") == {"total": 12}
 
 
 class Recorder:
