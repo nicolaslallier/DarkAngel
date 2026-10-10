@@ -68,6 +68,28 @@ beforeEach(() => {
   })
 })
 
+it('does not offer to mark unpaid an invoice an auto-pay service has already debited', async () => {
+  vi.mocked(getService).mockResolvedValue({ ...service, auto_pay: true })
+  vi.mocked(listInvoices).mockResolvedValue([
+    invoice('due', { paid: true, paid_at: null }),
+    invoice('manual', { paid: true, paid_at: '2026-10-01' }),
+    invoice('later', { paid: false }),
+  ])
+  const wrapper = await render()
+
+  const labels = wrapper.findAll('tr[data-test="invoice"]').map((r) => r.find('[data-test="toggle-paid"]'))
+  expect(labels[0].exists()).toBe(false)
+  expect(labels[1].text()).toBe('Mark unpaid')
+  expect(labels[2].text()).toBe('Mark paid')
+})
+
+it('shows why the household could not be loaded', async () => {
+  vi.mocked(getHousehold).mockRejectedValue(new Error('household boom'))
+  const wrapper = await render()
+
+  expect(wrapper.find('[role="alert"]').text()).toContain('household boom')
+})
+
 it('lists the invoices of the service and marks the ones above the alert threshold', async () => {
   const wrapper = await render()
 

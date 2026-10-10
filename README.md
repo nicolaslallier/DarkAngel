@@ -169,7 +169,9 @@ is never saved as validated without that step.
 - **Invoice PDFs** are ordinary files of the person who uploaded them. Every
   member of the household, read-only members included, can read one through its
   invoice (`GET /api/invoices/{id}/pdf`), even after the uploader leaves. Other
-  files stay private.
+  files stay private. An invoice shows the uploader's *current* file of that
+  name: a later upload of the same name to the Files root by the uploader
+  changes what the invoice shows.
 - **Reading** needs `DARKANGEL_OLLAMA_URL` (see Files). Without it, uploaded
   invoices go straight to the review queue to be filled in by hand.
 - **Invitations:** links are single-use, expire after 7 days and carry the token

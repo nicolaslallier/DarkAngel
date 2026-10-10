@@ -54,6 +54,16 @@ describe('apiRequest', () => {
     expect(fetchMock.mock.calls[0][1].body).toBe(form)
   })
 
+  it('uses the message of an object detail, like the duplicate-invoice 409', async () => {
+    fetchMock.mockResolvedValue(
+      response(409, { detail: { message: 'Invoice A-1 already exists', existing_id: 'x' } }),
+    )
+
+    await expect(apiRequest('POST', '/invoices/1/validate')).rejects.toThrow(
+      'Invoice A-1 already exists',
+    )
+  })
+
   it('throws with the method, path and status when the response is not ok', async () => {
     fetchMock.mockResolvedValue(response(500))
 

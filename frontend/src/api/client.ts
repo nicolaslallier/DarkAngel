@@ -19,6 +19,8 @@ export class ApiError extends Error {
 function messageOf(body: unknown, fallback: string): string {
   const detail = (body as { detail?: unknown } | null)?.detail
   if (typeof detail === 'string') return detail
+  const message = (detail as { message?: unknown } | undefined)?.message
+  if (typeof message === 'string') return message
   if (Array.isArray(detail)) return detail.map((d: { msg?: string }) => d.msg).join('; ')
   return fallback
 }

@@ -3,15 +3,20 @@ import { onMounted, ref } from 'vue'
 
 import type { Role } from '@/api/household'
 import { useHouseholdStore } from '@/stores/household'
+import { useMeStore } from '@/stores/me'
 
 const store = useHouseholdStore()
+const me = useMeStore()
 const name = ref('')
 const inviteRole = ref<'member' | 'viewer'>('member')
 const link = ref('')
 
 const LABELS: Record<Role, string> = { owner: 'Owner', member: 'Member', viewer: 'Read-only' }
 
-onMounted(() => store.load())
+onMounted(() => {
+  store.load()
+  if (!me.me) me.load()
+})
 
 async function create() {
   if (name.value.trim()) await store.create(name.value.trim())
@@ -50,7 +55,8 @@ async function leave() {
       <h2>{{ store.household.name }}</h2>
       <ul>
         <li v-for="member in store.household.members" :key="member.sub">
-          <code>{{ member.sub }}</code>
+          <code>{{ member.display_name ?? member.sub }}</code>
+          <small v-if="member.sub === me.me?.sub"> (you)</small>
           <template v-if="store.isOwner && member.role !== 'owner'">
             <select
               :value="member.role"

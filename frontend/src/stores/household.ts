@@ -14,6 +14,8 @@ import {
   type Household,
   type Invitation,
 } from '@/api/household'
+import { useInvoicesStore } from '@/stores/invoices'
+import { useProvidersStore } from '@/stores/providers'
 
 export const useHouseholdStore = defineStore('household', () => {
   const household = ref<Household | null>(null)
@@ -24,6 +26,16 @@ export const useHouseholdStore = defineStore('household', () => {
 
   const canWrite = computed(() => household.value !== null && household.value.role !== 'viewer')
   const isOwner = computed(() => household.value?.role === 'owner')
+
+  // Another household's providers and invoices must never linger in the other stores.
+  function forgetLedger() {
+    const providers = useProvidersStore()
+    const invoices = useInvoicesStore()
+    providers.providers = []
+    invoices.invoices = []
+    invoices.upcoming = { invoices: [], renewals: [] }
+    invoices.monthly = []
+  }
 
   async function run<T>(action: () => Promise<T>): Promise<T | undefined> {
     loading.value = true
@@ -70,6 +82,7 @@ export const useHouseholdStore = defineStore('household', () => {
   async function join(token: string) {
     return run(async () => {
       household.value = await joinHousehold(token)
+      forgetLedger()
       return true
     })
   }
@@ -78,6 +91,7 @@ export const useHouseholdStore = defineStore('household', () => {
     return run(async () => {
       await deleteHousehold()
       household.value = null
+      forgetLedger()
       return true
     })
   }
@@ -86,6 +100,7 @@ export const useHouseholdStore = defineStore('household', () => {
     return run(async () => {
       await leaveHousehold()
       household.value = null
+      forgetLedger()
       return true
     })
   }

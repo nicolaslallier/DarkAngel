@@ -25,6 +25,17 @@ it('emits a payload with blanks turned into nulls and numbers parsed', async () 
   })
 })
 
+it('submits the default threshold of 20 when the field is left blank', async () => {
+  const wrapper = mount(ServiceForm, { props: { submitLabel: 'Add service' } })
+
+  await wrapper.find('input[name="name"]').setValue('Internet')
+  await wrapper.find('input[name="category"]').setValue('internet')
+  await wrapper.find('input[name="alert_threshold_pct"]').setValue('')
+  await wrapper.find('form').trigger('submit')
+
+  expect(wrapper.emitted('submit')![0][0]).toMatchObject({ alert_threshold_pct: 20 })
+})
+
 it('starts from the service it is given', async () => {
   const wrapper = mount(ServiceForm, {
     props: {

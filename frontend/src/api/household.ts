@@ -5,6 +5,7 @@ export type Role = 'owner' | 'member' | 'viewer'
 export interface Member {
   sub: string
   role: Role
+  display_name: string | null
 }
 
 export interface Household {

@@ -4,6 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 
 import { ApiError } from '@/api/client'
 import { createHousehold, createInvitation, getHousehold } from '@/api/household'
+import { fetchMe } from '@/api/me'
 import HouseholdView from '@/views/HouseholdView.vue'
 
 vi.mock('@/auth', () => ({ accessToken: vi.fn(async () => null) }))
@@ -18,13 +19,15 @@ vi.mock('@/api/household', () => ({
   leaveHousehold: vi.fn(async () => {}),
 }))
 
+vi.mock('@/api/me', () => ({ fetchMe: vi.fn() }))
+
 const owned = {
   id: 'h1',
   name: 'Maison',
   role: 'owner' as const,
   members: [
-    { sub: 'alice', role: 'owner' as const },
-    { sub: 'bob', role: 'member' as const },
+    { sub: 'alice', role: 'owner' as const, display_name: 'Alice' },
+    { sub: 'bob', role: 'member' as const, display_name: null },
   ],
 }
 
@@ -36,6 +39,7 @@ async function render() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(fetchMe).mockResolvedValue({ sub: 'alice', username: 'alice', email: null, roles: [] })
 })
 
 it('offers to create a household when the person has none', async () => {
@@ -80,4 +84,15 @@ it('does not offer to create a household when loading failed', async () => {
 
   expect(wrapper.find('form').exists()).toBe(false)
   expect(wrapper.text()).toContain('boom')
+})
+
+it('shows the display name, or the sub when there is none, and marks the caller', async () => {
+  vi.mocked(getHousehold).mockResolvedValue(owned)
+  const wrapper = await render()
+
+  const rows = wrapper.findAll('li').map((li) => li.text())
+  expect(rows[0]).toContain('Alice')
+  expect(rows[0]).toContain('(you)')
+  expect(rows[1]).toContain('bob')
+  expect(rows[1]).not.toContain('(you)')
 })

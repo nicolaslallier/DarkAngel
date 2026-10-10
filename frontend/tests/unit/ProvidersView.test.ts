@@ -67,6 +67,13 @@ beforeEach(() => {
   })
 })
 
+it('shows why the household could not be loaded', async () => {
+  vi.mocked(getHousehold).mockRejectedValue(new Error('household boom'))
+  const wrapper = await render()
+
+  expect(wrapper.find('[role="alert"]').text()).toContain('household boom')
+})
+
 it('points a person without a household to the household page', async () => {
   vi.mocked(getHousehold).mockRejectedValue(new ApiError('no_household', 409, null))
 

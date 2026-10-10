@@ -47,7 +47,7 @@ function submit() {
     renewal_reminder_days: reminder === null ? null : Number(reminder),
     expected_monthly_cost: blankToNull(form.expected_monthly_cost),
     auto_pay: form.auto_pay,
-    alert_threshold_pct: Number(form.alert_threshold_pct),
+    alert_threshold_pct: Number(blankToNull(form.alert_threshold_pct) ?? 20),
   })
 }
 </script>

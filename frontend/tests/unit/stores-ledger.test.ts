@@ -237,3 +237,22 @@ it('invoice load resolves false after recording the error', async () => {
   expect(await store.loadAll()).toBe(false)
   expect(store.error).toBe('down')
 })
+
+it.each(['join', 'leave', 'remove'] as const)('%s forgets the providers and invoices of the old household', async (action) => {
+  vi.mocked(joinHousehold).mockResolvedValue({ ...home, role: 'member' })
+  const providers = useProvidersStore()
+  const invoices = useInvoicesStore()
+  providers.providers = [{ id: 'p' } as never]
+  invoices.invoices = [{ id: 'i' } as never]
+  invoices.upcoming = { invoices: [{ id: 'i' } as never], renewals: [] }
+  invoices.monthly = [{ month: '2026-10', total: '1.00' }]
+
+  await useHouseholdStore()[action](action === 'join' ? 'tok' : undefined as never)
+
+  expect(providers.providers).toEqual([])
+  expect([invoices.invoices, invoices.upcoming, invoices.monthly]).toEqual([
+    [],
+    { invoices: [], renewals: [] },
+    [],
+  ])
+})

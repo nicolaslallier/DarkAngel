@@ -127,6 +127,7 @@ async function onFiles(event: Event) {
 <template>
   <section>
     <p><RouterLink to="/providers">← Providers</RouterLink></p>
+    <p v-if="household.error" role="alert" class="error">{{ household.error }}</p>
     <p v-if="missing" class="error" role="alert">No such service.</p>
     <p v-if="household.loaded && !household.household">
       <RouterLink to="/household">Set up your household</RouterLink> to start tracking providers.
@@ -165,7 +166,7 @@ async function onFiles(event: Event) {
             <td>{{ row.status === 'validated' ? (row.paid ? 'Paid' : 'Unpaid') : row.status }}</td>
             <td v-if="household.canWrite">
               <button
-                v-if="row.status === 'validated'"
+                v-if="row.status === 'validated' && !(row.paid && !row.paid_at && service.auto_pay)"
                 type="button"
                 data-test="toggle-paid"
                 @click="togglePaid(row)"

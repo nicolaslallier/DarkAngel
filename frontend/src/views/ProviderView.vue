@@ -70,6 +70,7 @@ async function onFiles(event: Event) {
 <template>
   <section>
     <p><RouterLink to="/providers">← Providers</RouterLink></p>
+    <p v-if="household.error" role="alert" class="error">{{ household.error }}</p>
     <p v-if="household.loaded && !household.household">
       <RouterLink to="/household">Set up your household</RouterLink> to start tracking providers.
     </p>
