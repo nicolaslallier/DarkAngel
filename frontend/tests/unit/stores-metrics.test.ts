@@ -1,4 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia'
+import { watchEffect } from 'vue'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { getPanels, getRange } from '@/api/metrics'
@@ -19,7 +20,10 @@ beforeEach(() => {
   vi.mocked(getPanels).mockResolvedValue(PANELS as never)
   vi.mocked(getRange).mockImplementation(async (panel, range) => result(panel, range) as never)
 })
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  vi.useRealTimers()
+  Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+})
 
 it('load() fetches the catalog then every panel for the default range', async () => {
   const store = useMetricsStore()
@@ -86,4 +90,27 @@ it('auto-refresh refetches on the interval, skips hidden tabs and stops on stop(
   store.stop()
   await vi.advanceTimersByTimeAsync(60_000)
   expect(getRange).toHaveBeenCalledTimes(2)
+})
+
+it('first load of a panel is reactive: observers see loading=false and the series', async () => {
+  const store = useMetricsStore()
+  let seen = ''
+  watchEffect(
+    () => {
+      const e = store.state['host-cpu']
+      seen = e ? `${e.loading}/${e.series.length}` : 'none'
+    },
+    { flush: 'sync' },
+  )
+  await store.load()
+
+  expect(seen).toBe('false/1')
+})
+
+it('load() survives a failing catalog and leaves rows empty', async () => {
+  vi.mocked(getPanels).mockRejectedValue(new Error('boom'))
+  const store = useMetricsStore()
+  await expect(store.load()).resolves.toBeUndefined()
+
+  expect(store.rows).toEqual([])
 })

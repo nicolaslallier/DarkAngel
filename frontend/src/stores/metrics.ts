@@ -26,7 +26,8 @@ export const useMetricsStore = defineStore('metrics', () => {
 
   async function loadPanel(id: string) {
     const asked = range.value
-    const entry = (state[id] ??= { loading: false, error: null, series: [] })
+    state[id] ??= { loading: false, error: null, series: [] }
+    const entry = state[id] // the reactive proxy, not the raw object `??=` returns
     entry.loading = true
     try {
       const body = await getRange(id, asked)
