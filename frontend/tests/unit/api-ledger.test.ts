@@ -5,13 +5,14 @@ import { getMonthlyCosts, getServiceCosts, getUpcoming } from '@/api/costs'
 import { createInvitation, deleteHousehold, setMemberRole } from '@/api/household'
 import {
   createManualInvoice,
+  deleteInvoice,
   invoicePdf,
   listInvoices,
   setPaid,
   uploadInvoices,
   validateInvoice,
 } from '@/api/invoices'
-import { createService, updateProvider } from '@/api/providers'
+import { createService, getProvider, updateProvider, updateService } from '@/api/providers'
 
 vi.mock('@/api/client', () => ({
   apiGet: vi.fn(async () => ({})),
@@ -106,4 +107,20 @@ it('cost calls hit the three read endpoints', async () => {
   expect(apiGet).toHaveBeenCalledWith('/upcoming')
   expect(apiGet).toHaveBeenCalledWith('/services/s1/costs')
   expect(apiGet).toHaveBeenCalledWith('/costs/monthly')
+})
+
+it('encodes ids interpolated into request paths', async () => {
+  const id = 'a/../b'
+  const enc = 'a%2F..%2Fb'
+  await getProvider(id)
+  await updateService(id, { name: 'x' })
+  await deleteInvoice(id)
+  await invoicePdf(id)
+  await getServiceCosts(id)
+
+  expect(apiGet).toHaveBeenCalledWith(`/providers/${enc}`)
+  expect(apiSend).toHaveBeenCalledWith('PATCH', `/services/${enc}`, { name: 'x' })
+  expect(apiRequest).toHaveBeenCalledWith('DELETE', `/invoices/${enc}`)
+  expect(apiRequest).toHaveBeenCalledWith('GET', `/invoices/${enc}/pdf`)
+  expect(apiGet).toHaveBeenCalledWith(`/services/${enc}/costs`)
 })

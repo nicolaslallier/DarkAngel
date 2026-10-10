@@ -46,7 +46,7 @@ export function getUpcoming(): Promise<Upcoming> {
 }
 
 export function getServiceCosts(serviceId: string): Promise<ServiceCosts> {
-  return apiGet<ServiceCosts>(`/services/${serviceId}/costs`)
+  return apiGet<ServiceCosts>(`/services/${encodeURIComponent(serviceId)}/costs`)
 }
 
 export function getMonthlyCosts(): Promise<MonthlyCosts> {

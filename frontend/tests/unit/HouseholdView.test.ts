@@ -62,7 +62,7 @@ it('lets the owner generate an invitation link', async () => {
 
   expect(createInvitation).toHaveBeenCalledWith('viewer')
   const link = (wrapper.find('input[data-test="invite-link"]').element as HTMLInputElement).value
-  expect(link).toContain('/household/join?token=abc%20123')
+  expect(link).toContain('/household/join#token=abc%20123')
 })
 
 it('hides the owner controls from a member', async () => {

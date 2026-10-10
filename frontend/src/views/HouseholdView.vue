@@ -20,7 +20,7 @@ async function create() {
 async function invite() {
   const invitation = await store.invite(inviteRole.value)
   if (invitation) {
-    link.value = `${location.origin}/household/join?token=${encodeURIComponent(invitation.token)}`
+    link.value = `${location.origin}/household/join#token=${encodeURIComponent(invitation.token)}`
   }
 }
 

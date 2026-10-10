@@ -33,7 +33,7 @@ export function listProviders(): Promise<Provider[]> {
 }
 
 export function getProvider(id: string): Promise<Provider> {
-  return apiGet<Provider>(`/providers/${id}`)
+  return apiGet<Provider>(`/providers/${encodeURIComponent(id)}`)
 }
 
 export function createProvider(input: ProviderInput): Promise<Provider> {
@@ -41,29 +41,29 @@ export function createProvider(input: ProviderInput): Promise<Provider> {
 }
 
 export function updateProvider(id: string, patch: Partial<ProviderInput>): Promise<Provider> {
-  return apiSend<Provider>('PATCH', `/providers/${id}`, patch)
+  return apiSend<Provider>('PATCH', `/providers/${encodeURIComponent(id)}`, patch)
 }
 
 export async function deleteProvider(id: string): Promise<void> {
-  await apiRequest('DELETE', `/providers/${id}`)
+  await apiRequest('DELETE', `/providers/${encodeURIComponent(id)}`)
 }
 
 export function createService(providerId: string, input: ServiceInput): Promise<Service> {
-  return apiSend<Service>('POST', `/providers/${providerId}/services`, input)
+  return apiSend<Service>('POST', `/providers/${encodeURIComponent(providerId)}/services`, input)
 }
 
 export function getService(id: string): Promise<Service> {
-  return apiGet<Service>(`/services/${id}`)
+  return apiGet<Service>(`/services/${encodeURIComponent(id)}`)
 }
 
 export function updateService(
   id: string,
   patch: Partial<ServiceInput> & { archived?: boolean },
 ): Promise<Service> {
-  return apiSend<Service>('PATCH', `/services/${id}`, patch)
+  return apiSend<Service>('PATCH', `/services/${encodeURIComponent(id)}`, patch)
 }
 
 /** A service with invoices answers 409: archive it instead. */
 export async function deleteService(id: string): Promise<void> {
-  await apiRequest('DELETE', `/services/${id}`)
+  await apiRequest('DELETE', `/services/${encodeURIComponent(id)}`)
 }

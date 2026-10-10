@@ -27,27 +27,57 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-it('joins with the token in the link and goes to the providers', async () => {
+it('does not join just by opening the link', async () => {
+  const { wrapper } = await render('/household/join#token=tok123')
+
+  expect(joinHousehold).not.toHaveBeenCalled()
+  expect(wrapper.text()).toContain('You have been invited to join a household.')
+})
+
+it('joins with the decoded token on click and goes to the providers', async () => {
   vi.mocked(joinHousehold).mockResolvedValue({ id: 'h', name: 'M', role: 'viewer', members: [] })
 
-  const { router } = await render('/household/join?token=tok123')
+  const { wrapper, router } = await render('/household/join#token=tok%20123')
+  await wrapper.find('button[data-test="join"]').trigger('click')
+  await flushPromises()
 
-  expect(joinHousehold).toHaveBeenCalledWith('tok123')
+  expect(joinHousehold).toHaveBeenCalledWith('tok 123')
   expect(router.currentRoute.value.path).toBe('/providers')
 })
 
 it('says so when the link is invalid or expired', async () => {
   vi.mocked(joinHousehold).mockRejectedValue(new Error('Invitation invalid or expired'))
 
-  const { wrapper, router } = await render('/household/join?token=old')
+  const { wrapper, router } = await render('/household/join#token=old')
+  await wrapper.find('button[data-test="join"]').trigger('click')
+  await flushPromises()
 
   expect(wrapper.text()).toContain('Invitation invalid or expired')
   expect(router.currentRoute.value.path).toBe('/household/join')
 })
 
-it('does not call the API for a link with no token', async () => {
+it('has no button and no API call for a link with no token', async () => {
   const { wrapper } = await render('/household/join')
 
   expect(joinHousehold).not.toHaveBeenCalled()
+  expect(wrapper.find('button[data-test="join"]').exists()).toBe(false)
   expect(wrapper.text()).toContain('no invitation')
+})
+
+it('ignores a leftover ?token= query', async () => {
+  const { wrapper } = await render('/household/join?token=tok123')
+
+  expect(joinHousehold).not.toHaveBeenCalled()
+  expect(wrapper.find('button[data-test="join"]').exists()).toBe(false)
+})
+
+it('scrubs the token from the URL once read, and still joins with it', async () => {
+  vi.mocked(joinHousehold).mockResolvedValue({ id: 'h', name: 'M', role: 'viewer', members: [] })
+
+  const { wrapper, router } = await render('/household/join#token=tok123')
+
+  expect(router.currentRoute.value.fullPath).toBe('/household/join')
+  await wrapper.find('button[data-test="join"]').trigger('click')
+  await flushPromises()
+  expect(joinHousehold).toHaveBeenCalledWith('tok123')
 })

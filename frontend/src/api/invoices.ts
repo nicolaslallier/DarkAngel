@@ -76,11 +76,11 @@ export function listInvoices(
 }
 
 export function getInvoice(id: string): Promise<Invoice> {
-  return apiGet<Invoice>(`/invoices/${id}`)
+  return apiGet<Invoice>(`/invoices/${encodeURIComponent(id)}`)
 }
 
 export function validateInvoice(id: string, fields: InvoiceFields): Promise<Invoice> {
-  return apiSend<Invoice>('POST', `/invoices/${id}/validate`, fields)
+  return apiSend<Invoice>('POST', `/invoices/${encodeURIComponent(id)}/validate`, fields)
 }
 
 export function createManualInvoice(fields: InvoiceFields): Promise<Invoice> {
@@ -88,15 +88,15 @@ export function createManualInvoice(fields: InvoiceFields): Promise<Invoice> {
 }
 
 export function setPaid(id: string, paid: boolean): Promise<Invoice> {
-  return apiSend<Invoice>('POST', `/invoices/${id}/paid`, { paid })
+  return apiSend<Invoice>('POST', `/invoices/${encodeURIComponent(id)}/paid`, { paid })
 }
 
 export async function deleteInvoice(id: string): Promise<void> {
-  await apiRequest('DELETE', `/invoices/${id}`)
+  await apiRequest('DELETE', `/invoices/${encodeURIComponent(id)}`)
 }
 
 /** The PDF goes through the authenticated client: an <iframe src> to the API
  *  would carry no bearer token. The caller turns the blob into an object URL. */
 export async function invoicePdf(id: string): Promise<Blob> {
-  return (await apiRequest('GET', `/invoices/${id}/pdf`)).blob()
+  return (await apiRequest('GET', `/invoices/${encodeURIComponent(id)}/pdf`)).blob()
 }
