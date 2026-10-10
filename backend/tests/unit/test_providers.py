@@ -1,5 +1,7 @@
 """Unit — the provider and service routes, against FakeProviderRepository."""
 
+import uuid
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -126,7 +128,13 @@ def test_a_service_is_archived_with_a_patch(home):
 def test_a_service_with_invoices_is_not_deleted_but_archived(home):
     provider = make_provider().json()
     service = make_service(provider["id"]).json()
-    home.ledger.providers.invoices_for_service[uuid_of(service["id"])] = True
+    home.ledger.invoices.create(
+        home.id,
+        uploaded_by="user-1",
+        file_id=None,
+        service_id=uuid.UUID(service["id"]),
+        status="validated",
+    )
 
     assert client.delete(f"/api/services/{service['id']}", headers=auth()).status_code == 409
 
@@ -160,9 +168,3 @@ def test_a_member_of_the_household_sees_what_the_owner_created(home):
     make_provider()
 
     assert len(client.get("/api/providers", headers=auth("user-2")).json()) == 1
-
-
-def uuid_of(value):
-    import uuid
-
-    return uuid.UUID(value)

@@ -17,7 +17,7 @@ from app.core.clock import today
 from app.main import app
 from app.models.files import File, Folder
 from app.models.households import Household, HouseholdMember
-from app.models.providers import Provider, Service
+from app.models.providers import Invoice, InvoiceTax, Provider, Service
 from app.repositories.files import NameTaken, QuotaExceeded, file_repository
 from app.repositories.folders import folder_repository
 from app.repositories.households import (
@@ -26,6 +26,7 @@ from app.repositories.households import (
     InvitationInvalid,
     household_repository,
 )
+from app.repositories.invoices import invoice_repository
 from app.repositories.providers import provider_repository
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -448,7 +449,6 @@ class FakeProviderRepository:
         self.providers: list[Provider] = []
         self.service_rows: list[Service] = []
         self.invoices = None
-        self.invoices_for_service: dict[uuid.UUID, bool] = {}
 
     def list_providers(self, household_id):
         rows = [p for p in self.providers if p.household_id == household_id]
@@ -502,21 +502,147 @@ class FakeProviderRepository:
         self.service_rows.remove(service)
 
     def service_has_invoices(self, service_id):
-        if self.invoices is not None:
-            return any(i.service_id == service_id for i in self.invoices.rows)
-        return self.invoices_for_service.get(service_id, False)
+        return any(i.service_id == service_id for i in self.invoices.rows)
+
+
+class FakeInvoiceRepository:
+    """InvoiceRepository over a list. Mirrors the SQL for the cases the
+    integration suite pins: scoped lists ordered by due date (undated last),
+    duplicates by (service, number), validated ordered oldest first."""
+
+    def __init__(self):
+        self.rows: list[Invoice] = []
+        self.tax_rows: dict[uuid.UUID, list[InvoiceTax]] = {}
+
+    def create(
+        self,
+        household_id,
+        *,
+        uploaded_by,
+        file_id,
+        service_id,
+        status,
+        extraction=None,
+        taxes=(),
+        **fields,
+    ):
+        row = Invoice(
+            id=uuid.uuid4(),
+            household_id=household_id,
+            uploaded_by=uploaded_by,
+            file_id=file_id,
+            service_id=service_id,
+            status=status,
+            extraction=extraction,
+            error=None,
+            paid_at=None,
+            **fields,
+        )
+        self.rows.append(row)
+        self._set_taxes(row, taxes)
+        return row
+
+    def _set_taxes(self, row, taxes):
+        self.tax_rows.pop(row.id, None)
+        if taxes:
+            self.tax_rows[row.id] = [
+                InvoiceTax(id=uuid.uuid4(), invoice_id=row.id, **t) for t in taxes
+            ]
+
+    def get(self, household_id, invoice_id):
+        return next(
+            (r for r in self.rows if r.household_id == household_id and r.id == invoice_id),
+            None,
+        )
+
+    def by_id(self, invoice_id):
+        return next((r for r in self.rows if r.id == invoice_id), None)
+
+    def list(self, household_id, *, status=None, service_id=None):
+        rows = [
+            r
+            for r in self.rows
+            if r.household_id == household_id
+            and (status is None or r.status == status)
+            and (service_id is None or r.service_id == service_id)
+        ]
+        # Stable: ties keep creation order, like ORDER BY due_on NULLS LAST, created_at.
+        return sorted(rows, key=lambda r: (r.due_on is None, r.due_on or date.min))
+
+    def taxes_by_invoice(self, invoice_ids):
+        return {i: self.tax_rows[i] for i in invoice_ids if i in self.tax_rows}
+
+    def find_duplicate(self, service_id, invoice_number, exclude_id=None):
+        return next(
+            (
+                r
+                for r in self.rows
+                if r.service_id == service_id
+                and r.invoice_number == invoice_number
+                and r.id != exclude_id
+            ),
+            None,
+        )
+
+    def validate(self, invoice, *, service_id, fields, taxes):
+        for field, value in fields.items():
+            setattr(invoice, field, value)
+        invoice.service_id = service_id
+        invoice.status = "validated"
+        invoice.error = None
+        self._set_taxes(invoice, taxes)
+        return invoice
+
+    def set_paid(self, invoice, paid_at):
+        invoice.paid_at = paid_at
+
+    def delete(self, invoice):
+        self.rows.remove(invoice)
+        self.tax_rows.pop(invoice.id, None)
+
+    def validated(self, household_id, service_id=None):
+        rows = [
+            r
+            for r in self.rows
+            if r.household_id == household_id
+            and r.status == "validated"
+            and (service_id is None or r.service_id == service_id)
+        ]
+        return sorted(rows, key=lambda r: (r.issued_on or r.due_on, str(r.id)))
+
+    def set_status(self, invoice, status):
+        invoice.status = status
+
+    def finish(self, invoice, status, *, extraction=None, error=None, fields=None):
+        for field, value in (fields or {}).items():
+            setattr(invoice, field, value)
+        invoice.status = status
+        invoice.extraction = extraction if extraction is not None else invoice.extraction
+        invoice.error = error
+
+    def reset_stuck(self):
+        stuck = [r for r in self.rows if r.status in ("queued", "extracting")]
+        for row in stuck:
+            row.status, row.error = "failed", "Interrupted by a restart"
+        return len(stuck)
 
 
 @pytest.fixture
 def ledger():
-    """Swap the household and provider repositories (and, from Task 5, the
-    invoice repository) for in-memory fakes. Explicit, never autouse."""
-    fake = SimpleNamespace(households=FakeHouseholdRepository(), providers=FakeProviderRepository())
+    """Swap the household, provider and invoice repositories for in-memory
+    fakes. Explicit, never autouse."""
+    fake = SimpleNamespace(
+        households=FakeHouseholdRepository(),
+        providers=FakeProviderRepository(),
+        invoices=FakeInvoiceRepository(),
+    )
+    fake.providers.invoices = fake.invoices
     app.dependency_overrides[household_repository] = lambda: fake.households
     app.dependency_overrides[provider_repository] = lambda: fake.providers
+    app.dependency_overrides[invoice_repository] = lambda: fake.invoices
     yield fake
-    app.dependency_overrides.pop(household_repository, None)
-    app.dependency_overrides.pop(provider_repository, None)
+    for dependency in (household_repository, provider_repository, invoice_repository):
+        app.dependency_overrides.pop(dependency, None)
 
 
 @pytest.fixture
