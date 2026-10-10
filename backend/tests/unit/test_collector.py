@@ -231,3 +231,20 @@ def test_an_invalid_instances_setting_does_not_leak_the_key(monkeypatch):
         Settings(_env_file=None)
 
     assert "sekret-key" not in str(raised.value)
+
+
+def test_the_instance_url_never_reaches_the_stored_error():
+    def refuse(request):
+        raise httpx.ConnectError("refused to reach https://heaven.example", request=request)
+
+    for transport in (
+        httpx.MockTransport(refuse),
+        portainer_api(**{"/api/stacks": httpx.Response(401)}),
+    ):
+        assert "heaven.example" not in portainer.check(HEAVEN, transport).error
+
+
+def test_the_error_is_the_class_name_and_status_only():
+    reading = portainer.check(HEAVEN, portainer_api(**{"/api/stacks": httpx.Response(401)}))
+
+    assert reading.error == "HTTPStatusError 401"

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -49,9 +49,22 @@ def _backup(row: BackupStatus, now: datetime, max_age_hours: int) -> BackupInfo:
     )
 
 
+# One collector pass shares one `now`; rows further behind the newest reading
+# belong to an instance that left the config.
+CURRENT = timedelta(minutes=15)
+
+
+def _current(rows: list) -> list:
+    if not rows:
+        return rows
+    cutoff = max(r.checked_at for r in rows) - CURRENT
+    return [r for r in rows if r.checked_at >= cutoff]
+
+
 @router.get("/infra", response_model=Infra)
 def infra(ctx: Reader, repo: InfraRepo, now: Now) -> Infra:
     max_age = get_settings().backup_max_age_hours
+    statuses, backups = _current(repo.latest_statuses()), _current(repo.latest_backups())
     return Infra(
         instances=[
             InstanceStatus(
@@ -63,7 +76,7 @@ def infra(ctx: Reader, repo: InfraRepo, now: Now) -> Infra:
                 checked_at=s.checked_at,
                 error=s.error,
             )
-            for s in repo.latest_statuses()
+            for s in statuses
         ],
-        backups=[_backup(b, now, max_age) for b in repo.latest_backups()],
+        backups=[_backup(b, now, max_age) for b in backups],
     )

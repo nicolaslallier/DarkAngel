@@ -205,6 +205,8 @@ case "$cmd" in
       note "S3_SECRET_KEY is not set in .portainer.env: the Files page will fail (see README, Files)"
     [ -n "${POSTGRES_PASSWORD:-}" ] && [ "$POSTGRES_PASSWORD" != change-me ] ||
       note "POSTGRES_PASSWORD is not set in .portainer.env: the backend cannot start (see 'make postgres')"
+    [ -n "${BACKUP_S3_SECRET_KEY:-}" ] && [ "$BACKUP_S3_SECRET_KEY" != change-me ] ||
+      note "BACKUP_S3_SECRET_KEY is not set in .portainer.env: the dashboard's Backups card will show 'No backup' for every instance (see docs/dashboard.md)"
     [ -n "${PORTAINER_INSTANCES:-}" ] ||
       note "PORTAINER_INSTANCES is not set in .portainer.env: the dashboard's Backups and Infra cards stay empty (see docs/dashboard.md)"
     env="$(stack_env "$IMAGE_OWNER" "$IMAGE_TAG" "${S3_SECRET_KEY:-}" "${POSTGRES_PASSWORD:-}" "${PORTAINER_INSTANCES:-[]}" "${BACKUP_S3_SECRET_KEY:-}")"

@@ -52,10 +52,18 @@ workflow rewrites the stack's whole environment on every run).
 
 `/api/infra` is visible to every member of any household: the data is global
 per deployment, not scoped by household. The `error` text of an unreachable
-instance can contain the instance URL. This is a known, accepted property.
+instance is only an exception class and, for HTTP failures, the status (for
+example `ConnectError` or `HTTPStatusError 401`); the full detail, URL included,
+is in the collector log.
+
+Rows of an instance more than 15 minutes behind the newest reading are not
+shown, so a removed or renamed instance disappears after one pass.
 
 ## Debugging
 
 `docker logs` of `darkangel-collector` shows each pass and its failures. Empty
 cards mean no rows yet (collector not started, or `PORTAINER_INSTANCES` unset:
 `make up` warns about it).
+
+If every instance shows red "No backup", read the collector logs first: a wrong
+or missing `portainer-backups-ro` secret looks the same as failing backups.

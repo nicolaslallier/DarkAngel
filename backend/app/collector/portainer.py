@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import httpx
 
 from app.core.config import PortainerInstance
+
+log = logging.getLogger(__name__)
 
 
 def slug(name: str) -> str:
@@ -49,6 +52,12 @@ def check(instance: PortainerInstance, transport: httpx.BaseTransport | None = N
             environments = _count(client, "/api/endpoints")
             stacks = _count(client, "/api/stacks")
     except (httpx.HTTPError, httpx.InvalidURL, ValueError, KeyError, TypeError) as e:
-        # httpx messages carry the URL, never request headers, so the key stays out.
-        return Reading(False, error=f"{type(e).__name__}: {e}"[:200])
+        # The stored error reaches every household member, and httpx messages
+        # embed the URL: keep only the class (and HTTP status); the full text
+        # goes to the log, which never holds a key.
+        log.warning("%s unreachable: %s", instance.name, e)
+        error = type(e).__name__
+        if isinstance(e, httpx.HTTPStatusError):
+            error += f" {e.response.status_code}"
+        return Reading(False, error=error)
     return Reading(True, version, environments, stacks)

@@ -90,3 +90,28 @@ def test_an_instance_without_any_archive_is_stale(home, infra):
     (backup,) = client.get("/api/infra", headers=auth()).json()["backups"]
 
     assert (backup["last_backup_at"], backup["age_hours"], backup["stale"]) == (None, None, True)
+
+
+def test_an_instance_gone_from_the_config_is_not_shown(home, infra):
+    old = NOW - timedelta(days=3)
+    infra.add_status(instance="gone", reachable=True, checked_at=old)
+    infra.add_status(instance="live", reachable=True, checked_at=NOW - timedelta(minutes=1))
+    for name, when in (("gone", old), ("live", NOW - timedelta(minutes=1))):
+        infra.add_backup(
+            instance=name, last_backup_at=None, size_bytes=None, object_key=None, checked_at=when
+        )
+
+    body = client.get("/api/infra", headers=auth()).json()
+
+    assert [i["name"] for i in body["instances"]] == ["live"]
+    assert [b["instance"] for b in body["backups"]] == ["live"]
+
+
+def test_a_stopped_collector_still_shows_its_last_pass(home, infra):
+    old = NOW - timedelta(days=3)
+    infra.add_status(instance="heaven", reachable=True, checked_at=old)
+    infra.add_status(instance="infra", reachable=True, checked_at=old)
+
+    body = client.get("/api/infra", headers=auth()).json()
+
+    assert [i["name"] for i in body["instances"]] == ["heaven", "infra"]
