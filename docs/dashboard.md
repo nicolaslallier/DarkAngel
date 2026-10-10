@@ -67,3 +67,42 @@ cards mean no rows yet (collector not started, or `PORTAINER_INSTANCES` unset:
 
 If every instance shows red "No backup", read the collector logs first: a wrong
 or missing `portainer-backups-ro` secret looks the same as failing backups.
+
+## Metrics panels
+
+Below the three cards the home page shows a metrics section with three rows and
+a range picker (1h, 6h, 24h, 7d):
+
+- **Host**: CPU, memory, disk on `/`, network in and out. Source: node-exporter,
+  read through Prometheus.
+- **Containers**: the top five containers by CPU and by memory. Source: cAdvisor,
+  read through Prometheus.
+- **Portainer**: reachable, stacks and backup size per instance. Source: the
+  PostgreSQL rows the collector writes (not Prometheus).
+
+`GET /api/metrics/range?panel=<id>&range=<1h|6h|24h|7d>` serves them. The client
+sends a panel id, never a query: the PromQL lives in `backend/app/metrics/catalog.py`.
+The API reads Prometheus at `DARKANGEL_PROMETHEUS_URL` (setting
+`prometheus_url`), which defaults to `http://prometheus:9090`. It is optional and
+is not a stack variable, so the stack needs nothing unless Prometheus lives
+somewhere else.
+
+Network (**not verified from this repo**): `darkangel-api` is only on the external
+network `infra-net`, so `http://prometheus:9090` works only if the Prometheus
+container is on `infra-net`. If it is not, point `DARKANGEL_PROMETHEUS_URL` at an
+address the API can reach. Check with
+`docker inspect <prometheus container> --format '{{json .NetworkSettings.Networks}}'`
+on the Docker host.
+
+If Prometheus is down, only the Host and Containers panels go blank (the endpoint
+answers 502). The Portainer row reads PostgreSQL and keeps working.
+
+Adding a panel: add one entry to `PANELS` in `backend/app/metrics/catalog.py`,
+then add its id to the pinned list in `backend/tests/regression/test_metrics_catalog.py`.
+The OpenAPI snapshot does not change, because the panel ids are not part of the
+response schema.
+
+History: the Portainer row is limited to the collector's 30-day retention, so
+even the 7d range shows at most the last 30 days of it. How far back Prometheus
+keeps the Host and Containers data is set in the Prometheus configuration, which
+this repo does not contain (**not verified**).
