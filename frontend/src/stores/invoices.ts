@@ -51,15 +51,20 @@ export const useInvoicesStore = defineStore('invoices', () => {
     else invoices.value.splice(index, 1, updated)
   }
 
-  const loadAll = () => run(async () => void (invoices.value = await listInvoices()))
+  const loadAll = async () =>
+    (await run(async () => {
+      invoices.value = await listInvoices()
+      return true
+    })) === true
 
-  const loadDashboard = () =>
-    run(async () => {
+  const loadDashboard = async () =>
+    (await run(async () => {
       const [all, soon, months] = await Promise.all([listInvoices(), getUpcoming(), getMonthlyCosts()])
       invoices.value = all
       upcoming.value = soon
       monthly.value = months.months
-    })
+      return true
+    })) === true
 
   const upload = (files: File[], target?: UploadTarget) =>
     run(async () => {

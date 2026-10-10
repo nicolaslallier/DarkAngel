@@ -2,9 +2,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, expect, it, vi } from 'vitest'
 
 import { ApiError } from '@/api/client'
-import { getHousehold, joinHousehold } from '@/api/household'
-import { listInvoices, validateInvoice, type Invoice } from '@/api/invoices'
-import { listProviders } from '@/api/providers'
+import { getHousehold, joinHousehold, removeMember, setMemberRole } from '@/api/household'
+import { listInvoices, setPaid, uploadInvoices, validateInvoice, type Invoice } from '@/api/invoices'
+import { createProvider, deleteProvider, listProviders } from '@/api/providers'
 import { useHouseholdStore } from '@/stores/household'
 import { useInvoicesStore } from '@/stores/invoices'
 import { useProvidersStore } from '@/stores/providers'
@@ -152,4 +152,88 @@ it('a duplicate is reported with the id of the invoice it duplicates', async () 
   expect(result).toBeUndefined()
   expect(store.duplicateOf).toBe('other')
   expect(store.toReview).toHaveLength(1)
+})
+
+it('a 409 that is not no_household is an error, not an empty household', async () => {
+  vi.mocked(getHousehold).mockRejectedValue(new ApiError('Conflict', 409, null))
+  const store = useHouseholdStore()
+
+  const ok = await store.load()
+
+  expect(ok).toBe(false)
+  expect(store.error).toBe('Conflict')
+  expect(store.loaded).toBe(false)
+})
+
+it('load resolves true on success', async () => {
+  vi.mocked(getHousehold).mockResolvedValue(home)
+  expect(await useHouseholdStore().load()).toBe(true)
+})
+
+it('household actions resolve truthy on success, falsy after recording the error', async () => {
+  vi.mocked(joinHousehold).mockRejectedValue(new ApiError('bad token', 404, null))
+  const store = useHouseholdStore()
+  expect(await store.join('x')).toBeUndefined()
+  expect(store.error).toBe('bad token')
+
+  vi.mocked(removeMember).mockResolvedValue(undefined)
+  vi.mocked(getHousehold).mockResolvedValue(home)
+  expect(await store.removeMember('a')).toBe(true)
+  expect(store.error).toBeNull()
+})
+
+it('a failed setRole keeps its error and does not reload', async () => {
+  vi.mocked(setMemberRole).mockRejectedValue(new ApiError('nope', 403, null))
+  const store = useHouseholdStore()
+
+  const result = await store.setRole('a', 'viewer')
+
+  expect(result).toBeUndefined()
+  expect(store.error).toBe('nope')
+  expect(getHousehold).not.toHaveBeenCalled()
+})
+
+it('a provider mutation that committed is not reported as failed when the reload fails', async () => {
+  const created = { id: 'p9', name: 'Hydro', website: null, phone: null, email: null,
+    notes: null, services: [] }
+  vi.mocked(createProvider).mockResolvedValue(created)
+  vi.mocked(listProviders).mockRejectedValue(new ApiError('reload boom', 500, null))
+  const store = useProvidersStore()
+
+  const result = await store.createProvider(created)
+
+  expect(result).toBe(created)
+  expect(store.error).toBe('reload boom')
+})
+
+it('deleteProvider resolves true on success and undefined on failure', async () => {
+  vi.mocked(deleteProvider).mockResolvedValueOnce(undefined)
+  vi.mocked(listProviders).mockResolvedValue([])
+  const store = useProvidersStore()
+  expect(await store.deleteProvider('p1')).toBe(true)
+
+  vi.mocked(deleteProvider).mockRejectedValueOnce(new ApiError('409', 409, null))
+  expect(await store.deleteProvider('p1')).toBeUndefined()
+  expect(store.error).toBe('409')
+  expect(await store.load()).toBe(true)
+})
+
+it('markPaid replaces the invoice and upload prepends the created ones', async () => {
+  vi.mocked(listInvoices).mockResolvedValue([invoice({ id: 'a' })])
+  vi.mocked(setPaid).mockResolvedValue(invoice({ id: 'a', paid: true }))
+  vi.mocked(uploadInvoices).mockResolvedValue([invoice({ id: 'n' })])
+  const store = useInvoicesStore()
+  expect(await store.loadAll()).toBe(true)
+
+  expect(await store.markPaid('a', true)).toMatchObject({ paid: true })
+  expect(store.invoices[0].paid).toBe(true)
+  expect(await store.upload([new File(['x'], 'x.pdf')])).toHaveLength(1)
+  expect(store.invoices.map((i) => i.id)).toEqual(['n', 'a'])
+})
+
+it('invoice load resolves false after recording the error', async () => {
+  vi.mocked(listInvoices).mockRejectedValue(new ApiError('down', 500, null))
+  const store = useInvoicesStore()
+  expect(await store.loadAll()).toBe(false)
+  expect(store.error).toBe('down')
 })

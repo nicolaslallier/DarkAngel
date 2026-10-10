@@ -39,32 +39,46 @@ export const useHouseholdStore = defineStore('household', () => {
   }
 
   async function load() {
-    await run(async () => {
+    const ok = await run(async () => {
       try {
         household.value = await getHousehold()
       } catch (e) {
-        // 409 no_household: the person simply has none yet.
-        if (e instanceof ApiError && e.status === 409) household.value = null
-        else throw e
+        // 409 no_household: the person simply has none yet. Any other 409 is a real error.
+        if (e instanceof ApiError && e.status === 409 && e.message === 'no_household') {
+          household.value = null
+        } else throw e
       }
       loaded.value = true
+      return true
+    })
+    return ok === true
+  }
+
+  const reload = () =>
+    run(async () => {
+      household.value = await getHousehold()
+      return true
+    })
+
+  async function create(name: string) {
+    return run(async () => {
+      household.value = await createHousehold(name)
+      return true
     })
   }
 
-  const reload = () => run(async () => void (household.value = await getHousehold()))
-
-  async function create(name: string) {
-    return run(async () => void (household.value = await createHousehold(name)))
-  }
-
   async function join(token: string) {
-    return run(async () => void (household.value = await joinHousehold(token)))
+    return run(async () => {
+      household.value = await joinHousehold(token)
+      return true
+    })
   }
 
   async function remove() {
     return run(async () => {
       await deleteHousehold()
       household.value = null
+      return true
     })
   }
 
@@ -72,6 +86,7 @@ export const useHouseholdStore = defineStore('household', () => {
     return run(async () => {
       await leaveHousehold()
       household.value = null
+      return true
     })
   }
 
@@ -79,14 +94,17 @@ export const useHouseholdStore = defineStore('household', () => {
     return run(() => createInvitation(role))
   }
 
+  // The reload only follows a mutation that worked, so it never wipes that mutation's error.
   async function setRole(sub: string, role: 'member' | 'viewer') {
-    await run(() => setMemberRole(sub, role))
-    await reload()
+    const ok = await run(async () => (await setMemberRole(sub, role), true))
+    if (ok) await reload()
+    return ok
   }
 
   async function removeFromHousehold(sub: string) {
-    await run(() => removeMember(sub))
-    await reload()
+    const ok = await run(async () => (await removeMember(sub), true))
+    if (ok) await reload()
+    return ok
   }
 
   return {

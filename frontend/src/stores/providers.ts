@@ -39,25 +39,30 @@ export const useProvidersStore = defineStore('providers', () => {
     }
   }
 
-  // No optimistic updates: every mutation reloads the list.
-  async function mutate<T>(action: () => Promise<T>): Promise<T | undefined> {
-    const result = await run(async () => {
-      const value = await action()
+  async function load() {
+    const ok = await run(async () => {
       providers.value = await listProviders()
-      return value
+      return true
     })
+    return ok === true
+  }
+
+  // No optimistic updates: every mutation is followed by a reload. The write has committed
+  // once `action` resolves, so a failing reload only sets `error`; the result is still returned.
+  async function mutate<T>(action: () => Promise<T>): Promise<T | undefined> {
+    const result = await run(action)
+    if (result !== undefined) await load()
     return result
   }
 
-  const load = () => run(async () => void (providers.value = await listProviders()))
   const create = (input: ProviderInput) => mutate(() => createProvider(input))
   const update = (id: string, patch: Partial<ProviderInput>) => mutate(() => updateProvider(id, patch))
-  const remove = (id: string) => mutate(() => deleteProvider(id))
+  const remove = (id: string) => mutate(async () => (await deleteProvider(id), true))
   const addService = (providerId: string, input: ServiceInput) =>
     mutate(() => createService(providerId, input))
   const changeService = (id: string, patch: Partial<ServiceInput> & { archived?: boolean }) =>
     mutate(() => updateService(id, patch))
-  const removeService = (id: string) => mutate(() => deleteService(id))
+  const removeService = (id: string) => mutate(async () => (await deleteService(id), true))
 
   return {
     providers, error, loading, serviceOptions,

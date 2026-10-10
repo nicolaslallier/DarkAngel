@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 
 import { apiGet, apiRequest, apiSend } from '@/api/client'
-import { getUpcoming, getServiceCosts } from '@/api/costs'
+import { getMonthlyCosts, getServiceCosts, getUpcoming } from '@/api/costs'
 import { createInvitation, deleteHousehold, setMemberRole } from '@/api/household'
 import {
   createManualInvoice,
@@ -101,7 +101,9 @@ it('invoicePdf downloads the bytes through the authenticated client', async () =
 it('cost calls hit the three read endpoints', async () => {
   await getUpcoming()
   await getServiceCosts('s1')
+  await getMonthlyCosts()
 
   expect(apiGet).toHaveBeenCalledWith('/upcoming')
   expect(apiGet).toHaveBeenCalledWith('/services/s1/costs')
+  expect(apiGet).toHaveBeenCalledWith('/costs/monthly')
 })
