@@ -6,8 +6,10 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy import text
 
 from app import invoice_extraction as ie
+from app.core.db import engine
 from app.models.files import File
 from app.repositories.files import FileRepository
 from app.repositories.households import HouseholdRepository
@@ -152,3 +154,37 @@ def test_a_number_already_used_by_the_preselected_service_is_left_for_the_person
 
     row = reread(db, queued)
     assert (row.status, row.invoice_number) == ("to_validate", None)
+
+
+def test_no_connection_is_held_open_while_the_pdf_is_read_and_the_model_answers(
+    queued, db, monkeypatch
+):
+    db.rollback()  # the fixture's own session must not count as idle in transaction
+    idle = []
+
+    def watch():
+        with engine().connect() as other:
+            idle.append(
+                other.execute(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction' "
+                        "AND datname = current_database() AND pid <> pg_backend_pid()"
+                    )
+                ).scalar()
+            )
+
+    def pdf_text(key, size):
+        watch()
+        return "text"
+
+    def ask(text_):
+        watch()
+        return {"total": "10"}
+
+    monkeypatch.setattr(ie, "_pdf_text", pdf_text)
+    monkeypatch.setattr(ie, "_ask", ask)
+
+    ie.extract(queued)
+
+    assert idle == [0, 0]
+    assert reread(db, queued).status == "to_validate"

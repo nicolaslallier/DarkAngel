@@ -99,7 +99,7 @@ class Invoice(Base):
     # The PDF is an ordinary file owned by `uploaded_by`; if it is deleted the
     # reference is cleared and the invoice keeps its numbers.
     file_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"), nullable=True, index=True
     )
     uploaded_by: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)

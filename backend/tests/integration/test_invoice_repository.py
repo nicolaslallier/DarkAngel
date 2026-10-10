@@ -134,6 +134,24 @@ def test_finish_stores_the_result(setup):
     assert invoices.by_id(uuid.uuid4()) is None
 
 
+def test_finish_returns_true_while_the_read_is_running(setup):
+    household, service_id, invoices = setup
+    row = make(invoices, household, None, status="queued")
+
+    assert invoices.finish(row, "failed", error="x") is True
+    assert row.status == "failed"
+
+
+def test_a_late_finish_does_not_undo_a_validation_or_a_restart_sweep(setup):
+    household, service_id, invoices = setup
+    done = make(invoices, household, service_id, total=Decimal("5"), due_on=date(2026, 11, 1))
+    swept = make(invoices, household, None, status="failed")
+
+    assert invoices.finish(done, "to_validate", fields={"total": Decimal("9")}) is False
+    assert invoices.finish(swept, "to_validate") is False
+    assert (done.status, done.total, swept.status) == ("validated", Decimal("5.00"), "failed")
+
+
 def test_reset_stuck_fails_queued_and_extracting_only(setup, db):
     household, service_id, invoices = setup
     queued = make(invoices, household, None, status="queued")

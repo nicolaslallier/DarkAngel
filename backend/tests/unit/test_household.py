@@ -29,7 +29,7 @@ def test_create_makes_the_caller_the_owner(ledger):
     assert response.status_code == 201
     body = response.json()
     assert (body["name"], body["role"]) == ("Maison", "owner")
-    assert body["members"] == [{"sub": "alice", "role": "owner"}]
+    assert body["members"] == [{"sub": "alice", "role": "owner", "display_name": "nicolas"}]
 
 
 def test_a_second_create_is_a_409(home):
@@ -101,7 +101,10 @@ def test_the_owner_changes_a_role_and_removes_a_member(home):
     changed = client.patch("/api/household/members/bob", headers=auth(), json={"role": "viewer"})
     removed = client.delete("/api/household/members/bob", headers=auth())
 
-    assert (changed.status_code, changed.json()) == (200, {"sub": "bob", "role": "viewer"})
+    assert (changed.status_code, changed.json()) == (
+        200,
+        {"sub": "bob", "role": "viewer", "display_name": None},
+    )
     assert removed.status_code == 204
     assert client.get("/api/household", headers=auth("bob")).status_code == 409
 
@@ -140,3 +143,46 @@ def test_the_owner_deletes_the_household(home):
 
     assert client.delete("/api/household", headers=auth()).status_code == 204
     assert client.get("/api/household", headers=auth("bob")).status_code == 409
+
+
+def test_a_whitespace_only_household_name_is_a_422_and_names_are_stored_trimmed(ledger):
+    blank = client.post("/api/household", headers=auth("alice"), json={"name": "   "})
+    ok = client.post("/api/household", headers=auth("alice"), json={"name": "  Maison  "})
+
+    assert blank.status_code == 422
+    assert ok.json()["name"] == "Maison"
+
+
+def test_members_carry_the_display_name_from_the_token_when_they_create_or_join(ledger):
+    def as_(sub, **claims):
+        return {"Authorization": f"Bearer {token(sub=sub, **claims)}"}
+
+    created = client.post(
+        "/api/household", headers=as_("alice", preferred_username="alice"), json={"name": "M"}
+    )
+    link = client.post("/api/household/invitations", headers=as_("alice"), json={}).json()
+    joined = client.post(
+        "/api/household/join",
+        headers=as_("bob", preferred_username=None, email="bob@example.com"),
+        json={"token": link["token"]},
+    )
+    carol = client.post("/api/household/invitations", headers=as_("alice"), json={}).json()
+    anonymous = client.post(
+        "/api/household/join",
+        headers=as_("carol", preferred_username=None),
+        json={"token": carol["token"]},
+    )
+
+    assert created.json()["members"] == [{"sub": "alice", "role": "owner", "display_name": "alice"}]
+    names = {m["sub"]: m["display_name"] for m in joined.json()["members"]}
+    assert names == {"alice": "alice", "bob": "bob@example.com"}
+    assert {m["sub"]: m["display_name"] for m in anonymous.json()["members"]}["carol"] is None
+
+
+def test_a_role_change_for_a_member_who_just_left_is_a_404(home, monkeypatch):
+    home.ledger.households.add_member(home.id, "bob", "member")
+    monkeypatch.setattr(home.ledger.households, "set_role", lambda *a: None)
+
+    response = client.patch("/api/household/members/bob", headers=auth(), json={"role": "viewer"})
+
+    assert response.status_code == 404

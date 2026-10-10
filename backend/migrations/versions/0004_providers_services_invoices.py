@@ -103,6 +103,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_invoices_household_id", "invoices", ["household_id"])
     op.create_index("ix_invoices_service_id", "invoices", ["service_id"])
+    op.create_index("ix_invoices_file_id", "invoices", ["file_id"])
 
     op.create_table(
         "invoice_taxes",

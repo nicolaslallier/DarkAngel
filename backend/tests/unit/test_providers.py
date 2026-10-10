@@ -168,3 +168,26 @@ def test_a_member_of_the_household_sees_what_the_owner_created(home):
     make_provider()
 
     assert len(client.get("/api/providers", headers=auth("user-2")).json()) == 1
+
+
+def test_whitespace_only_names_are_a_422_and_names_are_stored_trimmed(home):
+    assert make_provider({**PROVIDER, "name": "   "}).status_code == 422
+    provider = make_provider({**PROVIDER, "name": "  Bell  "}).json()
+    assert provider["name"] == "Bell"
+    assert make_service(provider["id"], {**SERVICE, "name": " \t "}).status_code == 422
+    assert make_service(provider["id"], {**SERVICE, "category": "  "}).status_code == 422
+    service = make_service(provider["id"], {**SERVICE, "name": " Internet "}).json()
+    assert service["name"] == "Internet"
+    headers = auth()
+    assert (
+        client.patch(
+            f"/api/providers/{provider['id']}", headers=headers, json={"name": "  "}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.patch(
+            f"/api/services/{service['id']}", headers=headers, json={"name": "  "}
+        ).status_code
+        == 422
+    )

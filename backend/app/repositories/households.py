@@ -49,10 +49,14 @@ class HouseholdRepository:
         )
         return self.db.scalars(statement).all()
 
-    def create(self, sub: str, name: str) -> Household:
+    def create(self, sub: str, name: str, display_name: str | None = None) -> Household:
         household = Household(id=uuid.uuid4(), name=name)
         self.db.add(household)
-        self.db.add(HouseholdMember(sub=sub, household_id=household.id, role="owner"))
+        self.db.add(
+            HouseholdMember(
+                sub=sub, household_id=household.id, role="owner", display_name=display_name
+            )
+        )
         try:
             self.db.commit()
         except IntegrityError as e:
@@ -61,20 +65,25 @@ class HouseholdRepository:
         return household
 
     def set_role(self, household_id: uuid.UUID, sub: str, role: str) -> HouseholdMember | None:
-        member = self.db.get(HouseholdMember, sub)
-        if member is None or member.household_id != household_id:
-            return None
-        member.role = role
+        """One statement, so a member who left or moved meanwhile is a None,
+        not a write by primary key into someone else's household."""
+        member = self.db.scalars(
+            update(HouseholdMember)
+            .where(HouseholdMember.sub == sub, HouseholdMember.household_id == household_id)
+            .values(role=role)
+            .returning(HouseholdMember)
+        ).one_or_none()
         self.db.commit()
         return member
 
     def remove(self, household_id: uuid.UUID, sub: str) -> bool:
-        member = self.db.get(HouseholdMember, sub)
-        if member is None or member.household_id != household_id:
-            return False
-        self.db.delete(member)
+        result = self.db.execute(
+            delete(HouseholdMember).where(
+                HouseholdMember.sub == sub, HouseholdMember.household_id == household_id
+            )
+        )
         self.db.commit()
-        return True
+        return result.rowcount == 1
 
     def delete(self, household_id: uuid.UUID) -> None:
         # Members, invitations and every ledger table go with it (ON DELETE CASCADE).
@@ -102,7 +111,7 @@ class HouseholdRepository:
         self.db.commit()
         return token
 
-    def redeem(self, token: str, sub: str) -> HouseholdMember:
+    def redeem(self, token: str, sub: str, display_name: str | None = None) -> HouseholdMember:
         """Claim the link and join, in one transaction: if the person is already
         in a household the claim is rolled back and the link stays usable."""
         claimed = self.db.execute(
@@ -118,7 +127,12 @@ class HouseholdRepository:
         if claimed is None:
             self.db.rollback()
             raise InvitationInvalid
-        member = HouseholdMember(sub=sub, household_id=claimed.household_id, role=claimed.role)
+        member = HouseholdMember(
+            sub=sub,
+            household_id=claimed.household_id,
+            role=claimed.role,
+            display_name=display_name,
+        )
         self.db.add(member)
         try:
             self.db.commit()

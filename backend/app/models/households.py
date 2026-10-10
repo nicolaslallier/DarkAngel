@@ -33,6 +33,8 @@ class HouseholdMember(Base):
         index=True,
     )
     role: Mapped[str] = mapped_column(Text, nullable=False)
+    # From the token's claims when the person joined; the sub alone means nothing to a reader.
+    display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

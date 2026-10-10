@@ -847,6 +847,17 @@
       },
       "MemberInfo": {
         "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
           "role": {
             "title": "Role",
             "type": "string"

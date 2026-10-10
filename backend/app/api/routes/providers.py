@@ -40,6 +40,8 @@ class ProviderInfo(BaseModel):
 
 
 class ProviderIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     name: str = Field(min_length=1, max_length=200)
     website: str | None = Field(None, max_length=500)
     phone: str | None = Field(None, max_length=50)
@@ -50,6 +52,8 @@ class ProviderIn(BaseModel):
 class ProviderPatch(BaseModel):
     """Omitted = unchanged."""
 
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     name: str | None = Field(None, min_length=1, max_length=200)
     website: str | None = Field(None, max_length=500)
     phone: str | None = Field(None, max_length=50)
@@ -58,6 +62,8 @@ class ProviderPatch(BaseModel):
 
 
 class ServiceIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=100)
     account_number: str | None = Field(None, max_length=100)
@@ -70,6 +76,8 @@ class ServiceIn(BaseModel):
 
 
 class ServicePatch(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     name: str | None = Field(None, min_length=1, max_length=200)
     category: str | None = Field(None, min_length=1, max_length=100)
     account_number: str | None = Field(None, max_length=100)

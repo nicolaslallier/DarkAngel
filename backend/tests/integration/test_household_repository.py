@@ -92,3 +92,23 @@ def test_deleting_a_household_removes_its_members_and_invitations(households, db
 
     assert households.membership("alice") is None
     assert db.execute(text("SELECT count(*) FROM household_invitations")).scalar() == 0
+
+
+def test_a_member_who_left_meanwhile_is_not_written_through_a_stale_row(households, db):
+    mine = households.create("alice", "Maison")
+    households.redeem(households.invite(mine.id, "member", "alice"), "bob")
+    households.membership("bob")  # bob is now in the session's identity map
+    db.execute(text("DELETE FROM household_members WHERE sub = 'bob'"))  # left elsewhere
+
+    assert households.set_role(mine.id, "bob", "viewer") is None
+    assert households.remove(mine.id, "bob") is False
+    assert db.execute(text("SELECT count(*) FROM household_members")).scalar() == 1
+
+
+def test_the_display_name_is_stored_on_create_and_on_join(households):
+    mine = households.create("alice", "Maison", "alice")
+    households.redeem(households.invite(mine.id, "member", "alice"), "bob", "bob@example.com")
+
+    names = {m.sub: m.display_name for m in households.members(mine.id)}
+
+    assert names == {"alice": "alice", "bob": "bob@example.com"}

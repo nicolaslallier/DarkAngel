@@ -384,17 +384,19 @@ class FakeHouseholdRepository:
     def members(self, household_id):
         return [m for m in self._members.values() if m.household_id == household_id]
 
-    def add_member(self, household_id, sub, role):
-        member = HouseholdMember(sub=sub, household_id=household_id, role=role)
+    def add_member(self, household_id, sub, role, display_name=None):
+        member = HouseholdMember(
+            sub=sub, household_id=household_id, role=role, display_name=display_name
+        )
         self._members[sub] = member
         return member
 
-    def create(self, sub, name):
+    def create(self, sub, name, display_name=None):
         if sub in self._members:
             raise AlreadyMember
         household = Household(id=uuid.uuid4(), name=name)
         self.households[household.id] = household
-        self.add_member(household.id, sub, "owner")
+        self.add_member(household.id, sub, "owner", display_name)
         return household
 
     def set_role(self, household_id, sub, role):
@@ -426,7 +428,7 @@ class FakeHouseholdRepository:
         }
         return token
 
-    def redeem(self, token, sub):
+    def redeem(self, token, sub, display_name=None):
         invitation = self.tokens.get(token)
         if (
             invitation is None
@@ -437,7 +439,7 @@ class FakeHouseholdRepository:
         if sub in self._members:
             raise AlreadyMember
         invitation["used"] = True
-        return self.add_member(invitation["household_id"], sub, invitation["role"])
+        return self.add_member(invitation["household_id"], sub, invitation["role"], display_name)
 
 
 class FakeProviderRepository:
@@ -614,11 +616,14 @@ class FakeInvoiceRepository:
         invoice.status = status
 
     def finish(self, invoice, status, *, extraction=None, error=None, fields=None):
+        if invoice.status not in ("queued", "extracting"):
+            return False
         for field, value in (fields or {}).items():
             setattr(invoice, field, value)
         invoice.status = status
         invoice.extraction = extraction if extraction is not None else invoice.extraction
         invoice.error = error
+        return True
 
     def reset_stuck(self):
         stuck = [r for r in self.rows if r.status in ("queued", "extracting")]

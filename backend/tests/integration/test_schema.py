@@ -129,3 +129,9 @@ def test_audit_log_rows_cannot_be_updated_or_deleted(db):
     with pytest.raises(ProgrammingError):
         db.execute(text("DELETE FROM audit_log"))
     db.rollback()
+
+
+def test_the_ledger_schema_has_the_invoice_file_index_and_the_member_display_name(db):
+    inspector = inspect(engine())
+    assert "ix_invoices_file_id" in {i["name"] for i in inspector.get_indexes("invoices")}
+    assert "display_name" in {c["name"] for c in inspector.get_columns("household_members")}

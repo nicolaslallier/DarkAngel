@@ -153,14 +153,21 @@ class InvoiceRepository:
         extraction: dict | None = None,
         error: str | None = None,
         fields: dict[str, Any] | None = None,
-    ) -> None:
-        for field, value in (fields or {}).items():
-            setattr(invoice, field, value)
-        invoice.status = status
+    ) -> bool:
+        """Record the background read's outcome, but only while the invoice is
+        still waiting for it: a late finish must not undo a validation, a
+        deletion or the restart sweep. False when it did not apply."""
+        values: dict[str, Any] = {**(fields or {}), "status": status, "error": error}
         if extraction is not None:
-            invoice.extraction = extraction
-        invoice.error = error
+            values["extraction"] = extraction
+        result = self.db.execute(
+            update(Invoice)
+            .where(Invoice.id == invoice.id, Invoice.status.in_(("queued", "extracting")))
+            .values(**values)
+        )
         self.db.commit()
+        self.db.refresh(invoice)
+        return result.rowcount == 1
 
     def reset_stuck(self) -> int:
         """Background tasks die with the process: whatever was queued or

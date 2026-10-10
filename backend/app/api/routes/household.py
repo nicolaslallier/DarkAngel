@@ -1,7 +1,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.auth import Claims
 from app.core.household import Owner, Reader
@@ -18,6 +18,7 @@ router = APIRouter(prefix="/household", tags=["household"])
 class MemberInfo(BaseModel):
     sub: str
     role: str
+    display_name: str | None = None
 
 
 class HouseholdInfo(BaseModel):
@@ -28,6 +29,8 @@ class HouseholdInfo(BaseModel):
 
 
 class HouseholdCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     name: str = Field(min_length=1, max_length=100)
 
 
@@ -48,13 +51,21 @@ class RolePatch(BaseModel):
     role: Literal["member", "viewer"]
 
 
+def _member(m) -> MemberInfo:
+    return MemberInfo(sub=m.sub, role=m.role, display_name=m.display_name)
+
+
+def _display_name(claims) -> str | None:
+    return claims.get("preferred_username") or claims.get("email") or None
+
+
 def _info(repo: HouseholdRepo, household_id, role: str) -> HouseholdInfo:
     household = repo.get(household_id)
     return HouseholdInfo(
         id=str(household.id),
         name=household.name,
         role=role,
-        members=[MemberInfo(sub=m.sub, role=m.role) for m in repo.members(household_id)],
+        members=[_member(m) for m in repo.members(household_id)],
     )
 
 
@@ -66,7 +77,7 @@ def get_household(ctx: Reader, repo: HouseholdRepo) -> HouseholdInfo:
 @router.post("", response_model=HouseholdInfo, status_code=status.HTTP_201_CREATED)
 def create_household(claims: Claims, repo: HouseholdRepo, body: HouseholdCreate) -> HouseholdInfo:
     try:
-        household = repo.create(claims["sub"], body.name.strip())
+        household = repo.create(claims["sub"], body.name, _display_name(claims))
     except AlreadyMember as e:
         raise HTTPException(status.HTTP_409_CONFLICT, "Already in a household") from e
     return _info(repo, household.id, "owner")
@@ -87,7 +98,7 @@ def create_invitation(ctx: Owner, repo: HouseholdRepo, body: InvitationCreate) -
 @router.post("/join", response_model=HouseholdInfo)
 def join_household(claims: Claims, repo: HouseholdRepo, body: JoinBody) -> HouseholdInfo:
     try:
-        member = repo.redeem(body.token, claims["sub"])
+        member = repo.redeem(body.token, claims["sub"], _display_name(claims))
     except InvitationInvalid as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invitation invalid or expired") from e
     except AlreadyMember as e:
@@ -103,7 +114,9 @@ def set_member_role(ctx: Owner, repo: HouseholdRepo, sub: str, body: RolePatch) 
     if target.role == "owner":
         raise HTTPException(status.HTTP_409_CONFLICT, "The owner's role cannot change")
     member = repo.set_role(ctx.household_id, sub, body.role)
-    return MemberInfo(sub=member.sub, role=member.role)
+    if member is None:  # left or moved between the check and the write
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such member")
+    return _member(member)
 
 
 @router.delete("/members/{sub}", status_code=status.HTTP_204_NO_CONTENT)

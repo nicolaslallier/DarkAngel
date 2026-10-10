@@ -35,6 +35,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("role", sa.Text(), nullable=False),
+        sa.Column("display_name", sa.Text()),
         sa.Column(
             "joined_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),

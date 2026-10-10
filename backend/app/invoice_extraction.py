@@ -215,7 +215,11 @@ def _pdf_text(object_key: str, size: int) -> str:
 
 
 def _ask(text: str) -> dict:
-    answer = json.loads(summary.ask_ollama(PROMPT + text[: summary.TEXT_CHARS], as_json=True))
+    reply = summary.ask_ollama(PROMPT + text[: summary.TEXT_CHARS], as_json=True)
+    try:
+        answer = json.loads(reply)
+    except ValueError as e:
+        raise ReadError("the model did not answer with JSON") from e
     if not isinstance(answer, dict):
         raise ReadError("the model did not answer with a JSON object")
     return answer
@@ -231,34 +235,38 @@ def extract(invoice_id: uuid.UUID) -> None:
             if invoice is None:
                 return
             invoices.set_status(invoice, "extracting")
+            household_id, service_id = invoice.household_id, invoice.service_id
+            preselect = (invoice.extraction or {}).get("provider_id")
             try:
                 file_row = db.get(File, invoice.file_id) if invoice.file_id else None
                 if file_row is None or file_row.deleted_at is not None:
                     raise ReadError("the PDF is missing")
-                text = _pdf_text(file_row.object_key, file_row.size_bytes)
+                object_key, size = file_row.object_key, file_row.size_bytes
+                # Release the connection: the PDF read and the model take minutes.
+                db.rollback()
+                text = _pdf_text(object_key, size)
                 if not text.strip():
                     raise ReadError("no readable text: a scanned PDF?")
                 raw = _ask(text)
 
                 catalog = ProviderRepository(db)
-                providers = [(p.id, p.name) for p in catalog.list_providers(invoice.household_id)]
+                providers = [(p.id, p.name) for p in catalog.list_providers(household_id)]
                 services = [
                     (s.id, s.provider_id, s.name, s.category)
-                    for s in catalog.services(invoice.household_id)
+                    for s in catalog.services(household_id)
                 ]
-                preselect = (invoice.extraction or {}).get("provider_id")
                 fields, extraction = build(
                     raw,
                     providers,
                     services,
                     preselect_provider_id=uuid.UUID(preselect) if preselect else None,
-                    preselect_service_id=invoice.service_id,
+                    preselect_service_id=service_id,
                 )
                 number = fields.get("invoice_number")
                 if (
-                    invoice.service_id
+                    service_id
                     and number
-                    and invoices.find_duplicate(invoice.service_id, number, exclude_id=invoice.id)
+                    and invoices.find_duplicate(service_id, number, exclude_id=invoice_id)
                 ):
                     del fields["invoice_number"]  # the person types it; validate re-checks
                 invoices.finish(invoice, "to_validate", extraction=extraction, fields=fields)
