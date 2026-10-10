@@ -1,7 +1,8 @@
+import secrets
 import time
 import uuid
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from textwrap import shorten
 from types import SimpleNamespace
 
@@ -12,10 +13,18 @@ from minio.error import S3Error
 
 from app.api.routes import files
 from app.core import auth
+from app.core.clock import today
 from app.main import app
 from app.models.files import File, Folder
+from app.models.households import Household, HouseholdMember
 from app.repositories.files import NameTaken, QuotaExceeded, file_repository
 from app.repositories.folders import folder_repository
+from app.repositories.households import (
+    INVITATION_TTL,
+    AlreadyMember,
+    InvitationInvalid,
+    household_repository,
+)
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 ISSUER = "https://keycloak.famillelallier.net/realms/ea"
@@ -353,3 +362,101 @@ def repo():
     yield fake
     app.dependency_overrides.pop(file_repository, None)
     app.dependency_overrides.pop(folder_repository, None)
+
+
+class FakeHouseholdRepository:
+    """HouseholdRepository over dicts. `add_member` is test-only sugar."""
+
+    def __init__(self):
+        self.households: dict[uuid.UUID, Household] = {}
+        self._members: dict[str, HouseholdMember] = {}
+        self.tokens: dict[str, dict] = {}
+
+    def membership(self, sub):
+        return self._members.get(sub)
+
+    def get(self, household_id):
+        return self.households.get(household_id)
+
+    def members(self, household_id):
+        return [m for m in self._members.values() if m.household_id == household_id]
+
+    def add_member(self, household_id, sub, role):
+        member = HouseholdMember(sub=sub, household_id=household_id, role=role)
+        self._members[sub] = member
+        return member
+
+    def create(self, sub, name):
+        if sub in self._members:
+            raise AlreadyMember
+        household = Household(id=uuid.uuid4(), name=name)
+        self.households[household.id] = household
+        self.add_member(household.id, sub, "owner")
+        return household
+
+    def set_role(self, household_id, sub, role):
+        member = self._members.get(sub)
+        if member is None or member.household_id != household_id:
+            return None
+        member.role = role
+        return member
+
+    def remove(self, household_id, sub):
+        member = self._members.get(sub)
+        if member is None or member.household_id != household_id:
+            return False
+        del self._members[sub]
+        return True
+
+    def delete(self, household_id):
+        self.households.pop(household_id, None)
+        for sub in [s for s, m in self._members.items() if m.household_id == household_id]:
+            del self._members[sub]
+
+    def invite(self, household_id, role, created_by, ttl=INVITATION_TTL):
+        token = secrets.token_urlsafe(8)
+        self.tokens[token] = {
+            "household_id": household_id,
+            "role": role,
+            "expires_at": datetime.now(UTC) + ttl,
+            "used": False,
+        }
+        return token
+
+    def redeem(self, token, sub):
+        invitation = self.tokens.get(token)
+        if (
+            invitation is None
+            or invitation["used"]
+            or invitation["expires_at"] <= datetime.now(UTC)
+        ):
+            raise InvitationInvalid
+        if sub in self._members:
+            raise AlreadyMember
+        invitation["used"] = True
+        return self.add_member(invitation["household_id"], sub, invitation["role"])
+
+
+@pytest.fixture
+def ledger():
+    """Swap the household repository (and, from Tasks 3 and 5, the provider and
+    invoice repositories) for in-memory fakes. Explicit, never autouse."""
+    fake = SimpleNamespace(households=FakeHouseholdRepository())
+    app.dependency_overrides[household_repository] = lambda: fake.households
+    yield fake
+    app.dependency_overrides.pop(household_repository, None)
+
+
+@pytest.fixture
+def home(ledger):
+    """user-1 owns a household called Maison."""
+    household = ledger.households.create("user-1", "Maison")
+    return SimpleNamespace(id=household.id, ledger=ledger)
+
+
+@pytest.fixture
+def clock():
+    """Today is 2026-10-10 for the length of the test."""
+    app.dependency_overrides[today] = lambda: date(2026, 10, 10)
+    yield date(2026, 10, 10)
+    app.dependency_overrides.pop(today, None)

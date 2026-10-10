@@ -312,6 +312,100 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "HouseholdCreate": {
+        "properties": {
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "HouseholdCreate",
+        "type": "object"
+      },
+      "HouseholdInfo": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/MemberInfo"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role",
+          "members"
+        ],
+        "title": "HouseholdInfo",
+        "type": "object"
+      },
+      "InvitationCreate": {
+        "properties": {
+          "role": {
+            "default": "member",
+            "enum": [
+              "member",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "title": "InvitationCreate",
+        "type": "object"
+      },
+      "InvitationInfo": {
+        "properties": {
+          "expires_in_days": {
+            "title": "Expires In Days",
+            "type": "integer"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expires_in_days"
+        ],
+        "title": "InvitationInfo",
+        "type": "object"
+      },
+      "JoinBody": {
+        "properties": {
+          "token": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "JoinBody",
+        "type": "object"
+      },
       "MeResponse": {
         "properties": {
           "email": {
@@ -355,6 +449,41 @@
           "roles"
         ],
         "title": "MeResponse",
+        "type": "object"
+      },
+      "MemberInfo": {
+        "properties": {
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "sub": {
+            "title": "Sub",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sub",
+          "role"
+        ],
+        "title": "MemberInfo",
+        "type": "object"
+      },
+      "RolePatch": {
+        "properties": {
+          "role": {
+            "enum": [
+              "member",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "RolePatch",
         "type": "object"
       },
       "ValidationError": {
@@ -1026,6 +1155,299 @@
         "summary": "Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/household": {
+      "delete": {
+        "operationId": "delete_household_api_household_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Household",
+        "tags": [
+          "household"
+        ]
+      },
+      "get": {
+        "operationId": "get_household_api_household_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseholdInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Household",
+        "tags": [
+          "household"
+        ]
+      },
+      "post": {
+        "operationId": "create_household_api_household_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HouseholdCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseholdInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Household",
+        "tags": [
+          "household"
+        ]
+      }
+    },
+    "/api/household/invitations": {
+      "post": {
+        "operationId": "create_invitation_api_household_invitations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Invitation",
+        "tags": [
+          "household"
+        ]
+      }
+    },
+    "/api/household/join": {
+      "post": {
+        "operationId": "join_household_api_household_join_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseholdInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Join Household",
+        "tags": [
+          "household"
+        ]
+      }
+    },
+    "/api/household/leave": {
+      "post": {
+        "operationId": "leave_household_api_household_leave_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Leave Household",
+        "tags": [
+          "household"
+        ]
+      }
+    },
+    "/api/household/members/{sub}": {
+      "delete": {
+        "operationId": "remove_member_api_household_members__sub__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sub",
+            "required": true,
+            "schema": {
+              "title": "Sub",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Remove Member",
+        "tags": [
+          "household"
+        ]
+      },
+      "patch": {
+        "operationId": "set_member_role_api_household_members__sub__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sub",
+            "required": true,
+            "schema": {
+              "title": "Sub",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Member Role",
+        "tags": [
+          "household"
         ]
       }
     },

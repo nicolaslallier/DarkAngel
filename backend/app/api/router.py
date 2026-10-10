@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import files, folders, health, me
+from app.api.routes import files, folders, health, household, me
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health.router)
@@ -8,3 +8,4 @@ api_router.include_router(health.router)
 api_router.include_router(me.router)
 api_router.include_router(files.router)
 api_router.include_router(folders.router)
+api_router.include_router(household.router)
