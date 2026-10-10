@@ -4,7 +4,7 @@
 # the fake repositories substitute for them rather than exercising them. They
 # are gated instead by the backend-integration job:
 # tests/integration/test_repository.py, test_folder_repository.py and
-# test_backfill.py.
+# test_backfill.py and test_infra_repository.py.
 #
 # `make coverage-backend` does NOT use this file: it appends all three suites
 # and holds every module to COVERAGE_MIN.
@@ -12,4 +12,5 @@
 omit =
     app/repositories/files.py
     app/repositories/folders.py
+    app/repositories/infra.py
     app/scripts/backfill.py

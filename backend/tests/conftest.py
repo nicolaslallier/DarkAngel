@@ -17,6 +17,7 @@ from app.core.clock import today
 from app.main import app
 from app.models.files import File, Folder
 from app.models.households import Household, HouseholdMember
+from app.models.infra import BackupStatus, InfraStatus
 from app.models.providers import Invoice, InvoiceTax, Provider, Service
 from app.repositories.files import NameTaken, QuotaExceeded, file_repository
 from app.repositories.folders import folder_repository
@@ -26,6 +27,7 @@ from app.repositories.households import (
     InvitationInvalid,
     household_repository,
 )
+from app.repositories.infra import infra_repository
 from app.repositories.invoices import invoice_repository
 from app.repositories.providers import provider_repository
 
@@ -663,3 +665,76 @@ def clock():
     app.dependency_overrides[today] = lambda: date(2026, 10, 10)
     yield date(2026, 10, 10)
     app.dependency_overrides.pop(today, None)
+
+
+class FakeInfraRepository:
+    """The slice of InfraRepository the routes and the collector use, over lists.
+
+    Real model objects, like the other fakes, so column names cannot drift."""
+
+    def __init__(self):
+        self.statuses: list[InfraStatus] = []
+        self.backups: list[BackupStatus] = []
+
+    def add_status(
+        self,
+        *,
+        instance,
+        reachable,
+        version=None,
+        environments=None,
+        stacks=None,
+        error=None,
+        checked_at=None,
+    ):
+        row = InfraStatus(
+            instance=instance,
+            reachable=reachable,
+            version=version,
+            environments=environments,
+            stacks=stacks,
+            error=error,
+            checked_at=checked_at or datetime.now(UTC),
+        )
+        self.statuses.append(row)
+        return row
+
+    def add_backup(self, *, instance, last_backup_at, size_bytes, object_key, checked_at=None):
+        row = BackupStatus(
+            instance=instance,
+            last_backup_at=last_backup_at,
+            size_bytes=size_bytes,
+            object_key=object_key,
+            checked_at=checked_at or datetime.now(UTC),
+        )
+        self.backups.append(row)
+        return row
+
+    @staticmethod
+    def _latest(rows):
+        newest = {}
+        for row in rows:
+            if row.instance not in newest or row.checked_at >= newest[row.instance].checked_at:
+                newest[row.instance] = row
+        return [newest[name] for name in sorted(newest)]
+
+    def latest_statuses(self):
+        return self._latest(self.statuses)
+
+    def latest_backups(self):
+        return self._latest(self.backups)
+
+    def prune(self, before):
+        count = len(self.statuses) + len(self.backups)
+        self.statuses = [r for r in self.statuses if r.checked_at >= before]
+        self.backups = [r for r in self.backups if r.checked_at >= before]
+        return count - len(self.statuses) - len(self.backups)
+
+
+@pytest.fixture
+def infra():
+    """Swap the infra repository for an in-memory fake. Explicit, never autouse."""
+    fake = FakeInfraRepository()
+    app.dependency_overrides[infra_repository] = lambda: fake
+    yield fake
+    app.dependency_overrides.pop(infra_repository, None)

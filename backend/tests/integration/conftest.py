@@ -187,7 +187,8 @@ def db(pg_database):
     with db_module.session_factory()() as session:
         session.execute(
             sa_text(
-                "TRUNCATE audit_log, file_versions, files, folders, households "
+                "TRUNCATE audit_log, file_versions, files, folders, households, "
+                "infra_status, backup_status "
                 "RESTART IDENTITY CASCADE"
             )
         )
