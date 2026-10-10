@@ -4,6 +4,8 @@ import { accessToken, signIn } from '@/auth'
 import { router } from '@/router'
 
 // Every export the router and its lazily-loaded views reach for.
+// uplot (pulled in by HomeView) needs matchMedia, which jsdom lacks.
+vi.mock('@/components/MetricsSection.vue', () => ({ default: {} }))
 vi.mock('@/auth', () => ({
   accessToken: vi.fn(async () => null),
   signIn: vi.fn(async () => {}),

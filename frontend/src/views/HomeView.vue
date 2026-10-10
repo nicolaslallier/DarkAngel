@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 
+import MetricsSection from '@/components/MetricsSection.vue'
 import { age, bytes, money } from '@/format'
 import { useHealthStore } from '@/stores/health'
 import { useHouseholdStore } from '@/stores/household'
@@ -118,6 +119,8 @@ onMounted(async () => {
         <RouterLink to="/providers">All providers</RouterLink>
       </article>
     </div>
+
+    <MetricsSection v-if="household.household" />
   </section>
 </template>
 

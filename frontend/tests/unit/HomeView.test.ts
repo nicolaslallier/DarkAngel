@@ -19,6 +19,7 @@ vi.mock('@/api/household', () => ({ getHousehold: vi.fn() }))
 vi.mock('@/api/infra', () => ({ getInfra: vi.fn() }))
 vi.mock('@/api/invoices', () => ({ listInvoices: vi.fn() }))
 vi.mock('@/api/costs', () => ({ getUpcoming: vi.fn(), getMonthlyCosts: vi.fn() }))
+vi.mock('@/components/MetricsSection.vue', () => ({ default: { template: '<div data-test="metrics" />' } }))
 
 const NOW = new Date('2026-10-10T12:00:00Z')
 const home = { id: 'h', name: 'Maison', role: 'owner' as const, members: [] }
@@ -83,6 +84,12 @@ it('shows a row per instance and per backup, flagging what is wrong', async () =
   expect(backups[1].text()).toContain('No backup')
 })
 
+it('shows the metrics section once a household exists', async () => {
+  const wrapper = await render()
+
+  expect(wrapper.find('[data-test="metrics"]').exists()).toBe(true)
+})
+
 it('shows the overdue invoice', async () => {
   const wrapper = await render()
 
@@ -98,6 +105,7 @@ it('points a person without a household to the household page and asks nothing e
   expect(wrapper.find('a[href="/household"]').exists()).toBe(true)
   expect(getInfra).not.toHaveBeenCalled()
   expect(getUpcoming).not.toHaveBeenCalled()
+  expect(wrapper.find('[data-test="metrics"]').exists()).toBe(false)
 })
 
 it('keeps the other cards when /api/infra fails', async () => {

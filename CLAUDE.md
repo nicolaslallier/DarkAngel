@@ -60,6 +60,7 @@ guide — read it before adding a test.
   them instead of `Claims`, and every repository query filters on `household_id`.
   `api/routes/household.py`, `providers.py`, `invoices.py`, `costs.py` and
   `invoice_extraction.py` (Ollama reads invoice PDFs; mirrors `summary.py`).
+- `api/routes/metrics.py` + `metrics/` — fixed PromQL catalog proxied to Prometheus, plus DB-backed Portainer history; the SPA draws it with uPlot (`components/MetricsSection.vue`).
 
 **Frontend** (`frontend/src/`)
 

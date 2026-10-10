@@ -60,3 +60,17 @@ def test_prune_deletes_old_rows_from_both_tables(infra):
     assert infra.prune(T0 - timedelta(days=30)) == 2
     assert len(infra.latest_statuses()) == 1
     assert infra.latest_backups() == []
+
+
+def test_histories_exclude_rows_before_since_and_run_oldest_first(infra):
+    since = T0 - timedelta(hours=1)
+    for minutes in (10, -120, 0):
+        at = T0 + timedelta(minutes=minutes)
+        infra.add_status(instance="heaven", reachable=True, checked_at=at)
+        infra.add_backup(
+            instance="heaven", last_backup_at=None, size_bytes=1, object_key=None, checked_at=at
+        )
+
+    expected = [T0, T0 + timedelta(minutes=10)]
+    assert [s.checked_at for s in infra.status_history(since)] == expected
+    assert [b.checked_at for b in infra.backup_history(since)] == expected

@@ -1090,6 +1090,34 @@
         "title": "PaidBody",
         "type": "object"
       },
+      "PanelInfo": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "row": {
+            "title": "Row",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "row",
+          "unit"
+        ],
+        "title": "PanelInfo",
+        "type": "object"
+      },
       "ProviderIn": {
         "properties": {
           "email": {
@@ -1296,6 +1324,32 @@
         "title": "ProviderPatch",
         "type": "object"
       },
+      "RangeResult": {
+        "properties": {
+          "panel": {
+            "title": "Panel",
+            "type": "string"
+          },
+          "range": {
+            "title": "Range",
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/Series"
+            },
+            "title": "Series",
+            "type": "array"
+          }
+        },
+        "required": [
+          "panel",
+          "range",
+          "series"
+        ],
+        "title": "RangeResult",
+        "type": "object"
+      },
       "Renewal": {
         "properties": {
           "contract_end": {
@@ -1346,6 +1400,37 @@
           "role"
         ],
         "title": "RolePatch",
+        "type": "object"
+      },
+      "Series": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "label",
+          "points"
+        ],
+        "title": "Series",
         "type": "object"
       },
       "ServiceCosts": {
@@ -3313,6 +3398,98 @@
         "summary": "Me",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/metrics/panels": {
+      "get": {
+        "operationId": "panels_api_metrics_panels_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PanelInfo"
+                  },
+                  "title": "Response Panels Api Metrics Panels Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Panels",
+        "tags": [
+          "metrics"
+        ]
+      }
+    },
+    "/api/metrics/range": {
+      "get": {
+        "operationId": "metric_range_api_metrics_range_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "panel",
+            "required": true,
+            "schema": {
+              "title": "Panel",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "range",
+            "required": true,
+            "schema": {
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d"
+              ],
+              "title": "Range",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RangeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Metric Range",
+        "tags": [
+          "metrics"
         ]
       }
     },

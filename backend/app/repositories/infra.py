@@ -76,6 +76,22 @@ class InfraRepository:
         )
         return list(self.db.scalars(statement))
 
+    def status_history(self, since: datetime) -> list[InfraStatus]:
+        statement = (
+            select(InfraStatus)
+            .where(InfraStatus.checked_at >= since)
+            .order_by(InfraStatus.checked_at)
+        )
+        return list(self.db.scalars(statement))
+
+    def backup_history(self, since: datetime) -> list[BackupStatus]:
+        statement = (
+            select(BackupStatus)
+            .where(BackupStatus.checked_at >= since)
+            .order_by(BackupStatus.checked_at)
+        )
+        return list(self.db.scalars(statement))
+
     def prune(self, before: datetime) -> int:
         deleted = 0
         for model in (InfraStatus, BackupStatus):

@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     backup_max_age_hours: int = 48
     collector_interval_seconds: int = 300
 
+    # The Prometheus the metrics panels read (node-exporter + cAdvisor). No auth.
+    prometheus_url: str = "http://prometheus:9090"
+    prometheus_timeout_seconds: float = 5
+
     # Upload guards. Both are refused with 413: one file over the first, or a
     # file that would push the owner's total over the second.
     max_upload_bytes: int = 5 * 1024 * 1024 * 1024
