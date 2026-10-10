@@ -13,7 +13,7 @@ import unicodedata
 import uuid
 from collections.abc import Sequence
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from app import summary
@@ -35,6 +35,13 @@ PROMPT = (
     '(a list of {"name", "amount"}). The invoice text follows.\n\n'
 )
 
+GENERIC_ERROR = "The invoice could not be read"
+
+
+class ReadError(Exception):
+    """A failure this module raises on purpose; its message is safe to show."""
+
+
 Provider = tuple[uuid.UUID, str]
 ServiceRow = tuple[uuid.UUID, uuid.UUID, str, str]  # id, provider_id, name, category
 
@@ -54,10 +61,17 @@ def _money(value: Any) -> Decimal | None:
     if isinstance(value, (int, float)):
         result = Decimal(str(value))
     elif isinstance(value, str):
-        # Drops spaces, non-breaking spaces and currency signs; a lone comma is
-        # a decimal comma, a comma next to a point is a thousands separator.
+        # Drops spaces, non-breaking spaces and currency signs. The last separator
+        # is the decimal mark, unless it repeats (then it is thousands): the other
+        # kind is always a thousands separator.
+        if re.search(r"\d[eE][+-]?\d", value):  # 1e30 is not "130"
+            return None
         text = re.sub(r"[^\d,.\-]", "", value)
-        text = text.replace(",", "") if "," in text and "." in text else text.replace(",", ".")
+        mark = max(text.rfind(","), text.rfind("."))
+        if mark >= 0 and text.count(text[mark]) > 1:
+            text = re.sub(r"[,.]", "", text)
+        elif mark >= 0:
+            text = re.sub(r"[,.]", "", text[:mark]) + "." + text[mark + 1 :]
         try:
             result = Decimal(text)
         except InvalidOperation:
@@ -65,6 +79,14 @@ def _money(value: Any) -> Decimal | None:
     else:
         return None
     return result if result.is_finite() else None
+
+
+def _bounded(value: Any, limit: int, places: str) -> Decimal | None:
+    """The API's own limits: non-negative, and small enough for the NUMERIC column."""
+    number = _money(value)
+    if number is None or number < 0 or number >= limit:
+        return None
+    return number.quantize(Decimal(places), rounding=ROUND_HALF_UP)
 
 
 def _date(value: Any) -> date | None:
@@ -79,19 +101,22 @@ def _date(value: Any) -> date | None:
 def clean(raw: dict) -> dict:
     taxes = []
     for line in raw.get("taxes") if isinstance(raw.get("taxes"), list) else []:
-        if not isinstance(line, dict) or (amount := _money(line.get("amount"))) is None:
+        if (
+            not isinstance(line, dict)
+            or (amount := _bounded(line.get("amount"), 10**10, "0.01")) is None
+        ):
             continue
         taxes.append({"name": _text(line.get("name"), 100) or "Taxe", "amount": amount})
     return {
         "provider": _text(raw.get("provider"), 200),
         "service": _text(raw.get("service"), 200),
-        "total": _money(raw.get("total")),
+        "total": _bounded(raw.get("total"), 10**10, "0.01"),
         "issued_on": _date(raw.get("issued_on")),
         "due_on": _date(raw.get("due_on")),
         "period_start": _date(raw.get("period_start")),
         "period_end": _date(raw.get("period_end")),
         "invoice_number": _text(raw.get("invoice_number"), 100),
-        "consumption_qty": _money(raw.get("consumption_qty")),
+        "consumption_qty": _bounded(raw.get("consumption_qty"), 10**11, "0.001"),
         "consumption_unit": _text(raw.get("consumption_unit"), 30),
         "taxes": taxes[:20],
     }
@@ -123,6 +148,8 @@ def _match(name: str | None, rows: Sequence[tuple[uuid.UUID, str]]):
     exact = [r for r in rows if normalize(r[1]) == wanted]
     if len(exact) == 1:
         return exact[0]
+    if len(wanted) < 3:
+        return None
     loose = [
         r
         for r in rows
@@ -183,14 +210,14 @@ def build(
 
 def _pdf_text(object_key: str, size: int) -> str:
     if size > summary.MAX_READ_BYTES:
-        raise ValueError("the PDF is too big to read")
+        raise ReadError("the PDF is too big to read")
     return summary.pdf_text(summary._read(object_key, summary.MAX_READ_BYTES))
 
 
 def _ask(text: str) -> dict:
     answer = json.loads(summary.ask_ollama(PROMPT + text[: summary.TEXT_CHARS], as_json=True))
     if not isinstance(answer, dict):
-        raise ValueError("the model did not answer with a JSON object")
+        raise ReadError("the model did not answer with a JSON object")
     return answer
 
 
@@ -207,10 +234,10 @@ def extract(invoice_id: uuid.UUID) -> None:
             try:
                 file_row = db.get(File, invoice.file_id) if invoice.file_id else None
                 if file_row is None or file_row.deleted_at is not None:
-                    raise ValueError("the PDF is missing")
+                    raise ReadError("the PDF is missing")
                 text = _pdf_text(file_row.object_key, file_row.size_bytes)
                 if not text.strip():
-                    raise ValueError("no readable text: a scanned PDF?")
+                    raise ReadError("no readable text: a scanned PDF?")
                 raw = _ask(text)
 
                 catalog = ProviderRepository(db)
@@ -227,10 +254,19 @@ def extract(invoice_id: uuid.UUID) -> None:
                     preselect_provider_id=uuid.UUID(preselect) if preselect else None,
                     preselect_service_id=invoice.service_id,
                 )
+                number = fields.get("invoice_number")
+                if (
+                    invoice.service_id
+                    and number
+                    and invoices.find_duplicate(invoice.service_id, number, exclude_id=invoice.id)
+                ):
+                    del fields["invoice_number"]  # the person types it; validate re-checks
                 invoices.finish(invoice, "to_validate", extraction=extraction, fields=fields)
             except Exception as e:
                 log.exception("reading invoice %s failed", invoice_id)
                 db.rollback()
-                invoices.finish(invoice, "failed", error=str(e)[:300] or type(e).__name__)
+                invoices.finish(
+                    invoice, "failed", error=str(e) if isinstance(e, ReadError) else GENERIC_ERROR
+                )
     except Exception:
         log.exception("could not record the outcome for invoice %s", invoice_id)

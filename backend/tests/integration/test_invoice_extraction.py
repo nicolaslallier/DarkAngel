@@ -85,7 +85,11 @@ def test_a_readable_invoice_lands_in_the_validation_queue(queued, db, monkeypatc
     ("text", "ask", "message"),
     [
         ("", lambda t: {}, "no readable text"),
-        ("some text", lambda t: (_ for _ in ()).throw(ValueError("not json")), "not json"),
+        (
+            "some text",
+            lambda t: (_ for _ in ()).throw(ValueError("not json")),
+            "The invoice could not be read",
+        ),
     ],
 )
 def test_an_unreadable_invoice_fails_with_a_message_and_can_still_be_filled_by_hand(
@@ -112,3 +116,39 @@ def test_a_missing_pdf_fails_cleanly(queued, db, monkeypatch):
 
 def test_an_unknown_invoice_id_is_ignored(db):
     ie.extract(uuid.uuid4())
+
+
+def test_an_unexpected_error_never_reaches_the_client(queued, db, monkeypatch):
+    monkeypatch.setattr(ie, "_pdf_text", lambda key, size: "text")
+    monkeypatch.setattr(ie, "_ask", lambda text: (_ for _ in ()).throw(RuntimeError("secret sql")))
+
+    ie.extract(queued)
+
+    row = reread(db, queued)
+    assert row.status == "failed"
+    assert row.error == "The invoice could not be read"
+    assert "secret" not in row.error
+
+
+def test_a_number_already_used_by_the_preselected_service_is_left_for_the_person(
+    queued, db, monkeypatch
+):
+    invoices = InvoiceRepository(db)
+    service = ProviderRepository(db).services(reread(db, queued).household_id)[0]
+    invoices.create(
+        service.household_id,
+        uploaded_by="alice",
+        file_id=None,
+        service_id=service.id,
+        status="validated",
+        invoice_number="A-1",
+    )
+    reread(db, queued).service_id = service.id
+    db.commit()
+    monkeypatch.setattr(ie, "_pdf_text", lambda key, size: "text")
+    monkeypatch.setattr(ie, "_ask", lambda text: {"total": "10", "invoice_number": "A-1"})
+
+    ie.extract(queued)
+
+    row = reread(db, queued)
+    assert (row.status, row.invoice_number) == ("to_validate", None)

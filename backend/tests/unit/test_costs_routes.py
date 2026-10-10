@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal as D
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -123,7 +124,7 @@ def test_the_threshold_is_the_services_own(home):
 
 def test_costs_of_a_foreign_service_are_a_404(home):
     other = home.ledger.households.create("dave", "Chalet")
-    foreign = service_for(type("H", (), {"id": other.id, "ledger": home.ledger}))
+    foreign = service_for(SimpleNamespace(id=other.id, ledger=home.ledger))
 
     assert client.get(f"/api/services/{foreign.id}/costs", headers=auth()).status_code == 404
 
@@ -145,3 +146,21 @@ def test_a_viewer_can_read_all_three(home, clock):
 
     for path in ("/api/upcoming", f"/api/services/{service.id}/costs", "/api/costs/monthly"):
         assert client.get(path, headers=auth("viewer")).status_code == 200
+
+
+def test_upcoming_and_monthly_never_include_another_households_data(home, clock):
+    other = SimpleNamespace(
+        id=home.ledger.households.create("dave", "Chalet").id, ledger=home.ledger
+    )
+    mine = service_for(home)
+    theirs = service_for(other, name="Secret")
+    invoice(home, mine, "10.00", date(2026, 11, 1), issued=date(2026, 10, 1))
+    invoice(other, theirs, "999.00", date(2026, 11, 2), issued=date(2026, 10, 2))
+    theirs.contract_end, theirs.renewal_reminder_days = date(2026, 10, 25), 30
+
+    upcoming = client.get("/api/upcoming", headers=auth()).json()
+    months = client.get("/api/costs/monthly", headers=auth()).json()["months"]
+
+    assert [i["total"] for i in upcoming["invoices"]] == ["10.00"]
+    assert upcoming["renewals"] == []
+    assert months == [{"month": "2026-10", "total": "10.00"}]
