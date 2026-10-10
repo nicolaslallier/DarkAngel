@@ -181,3 +181,36 @@ def test_collect_once_prunes_rows_older_than_thirty_days(monkeypatch):
     run_once(repo, [], FakeBucket(), monkeypatch, lambda inst: None)
 
     assert repo.statuses == [] and repo.backups == []
+
+
+BAD = PortainerInstance(name="BAD", url="http://[::1", api_key="sekret-key")
+
+
+def test_a_malformed_url_is_unreachable_and_the_key_stays_out_of_the_error():
+    reading = portainer.check(BAD)
+
+    assert reading.reachable is False
+    assert "sekret-key" not in reading.error
+
+
+def test_a_malformed_url_does_not_stop_the_next_instance():
+    repo = FakeInfraRepository()
+    infra = PortainerInstance(name="INFRA", url="https://infra.example", api_key="k")
+    real_check = portainer.check
+
+    def check(inst):
+        return real_check(inst, portainer_api_for_infra() if inst.name == "INFRA" else None)
+
+    def portainer_api_for_infra():
+        return httpx.MockTransport(
+            lambda r: httpx.Response(
+                200, json={"Version": "2"} if r.url.path.endswith("status") else []
+            )
+        )
+
+    import pytest
+
+    with pytest.MonkeyPatch.context() as mp:
+        run_once(repo, [BAD, infra], FakeBucket(), mp, check)
+
+    assert [(s.instance, s.reachable) for s in repo.statuses] == [("bad", False), ("infra", True)]

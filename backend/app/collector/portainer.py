@@ -48,7 +48,7 @@ def check(instance: PortainerInstance, transport: httpx.BaseTransport | None = N
             version = str(_get(client, "/api/system/status")["Version"])
             environments = _count(client, "/api/endpoints")
             stacks = _count(client, "/api/stacks")
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError, KeyError, TypeError) as e:
         # httpx messages carry the URL, never request headers, so the key stays out.
         return Reading(False, error=f"{type(e).__name__}: {e}"[:200])
     return Reading(True, version, environments, stacks)
