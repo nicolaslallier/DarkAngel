@@ -33,6 +33,10 @@ onMounted(async () => {
     </p>
 
     <p v-if="household.error" role="alert" class="error">{{ household.error }}</p>
+    <p v-if="household.household && infra.collectorStale" class="error" data-test="collector-stale">
+      Data is more than 15 minutes old: is the collector running?
+    </p>
+
     <p v-if="household.loaded && !household.household">
       <RouterLink to="/household">Set up your household</RouterLink> to see the dashboard.
     </p>
@@ -41,10 +45,8 @@ onMounted(async () => {
       <article>
         <h2>Backups</h2>
         <p v-if="infra.error" class="error" data-test="infra-error">{{ infra.error }}</p>
+        <p v-else-if="infra.loading">Loading…</p>
         <p v-else-if="!infra.backups.length">Nothing collected yet.</p>
-        <p v-if="infra.collectorStale" class="error" data-test="collector-stale">
-          Data is more than 15 minutes old: is the collector running?
-        </p>
         <ul>
           <li
             v-for="b in infra.backups"
@@ -54,7 +56,7 @@ onMounted(async () => {
           >
             <strong>{{ b.instance }}</strong>
             <template v-if="b.last_backup_at">
-              {{ age(b.age_hours) }} ago · {{ bytes(b.size_bytes) }}
+              {{ age(b.age_hours) }} ago · {{ bytes(b.size_bytes) }}<template v-if="b.stale"> · Stale</template>
             </template>
             <template v-else>No backup</template>
           </li>
@@ -64,6 +66,7 @@ onMounted(async () => {
       <article>
         <h2>Infra</h2>
         <p v-if="infra.error" class="error">{{ infra.error }}</p>
+        <p v-else-if="infra.loading">Loading…</p>
         <p v-else-if="!infra.instances.length">Nothing collected yet.</p>
         <ul>
           <li
@@ -90,7 +93,12 @@ onMounted(async () => {
             review
           </RouterLink>
         </p>
-        <p v-if="!invoices.upcoming.invoices.length && !invoices.upcoming.renewals.length">
+        <p v-if="invoices.loading">Loading…</p>
+        <p
+          v-else-if="
+            !invoices.error && !invoices.upcoming.invoices.length && !invoices.upcoming.renewals.length
+          "
+        >
           Nothing due.
         </p>
         <ul>
@@ -101,7 +109,7 @@ onMounted(async () => {
             :class="{ bad: due.overdue }"
           >
             {{ due.provider_name }} · {{ due.service_name }} · {{ money(due.total) }} ·
-            {{ due.due_on }}
+            {{ due.due_on }}<template v-if="due.overdue"> · Overdue</template>
           </li>
           <li v-for="r in invoices.upcoming.renewals" :key="r.service_id" data-test="renewal">
             {{ r.provider_name }} · {{ r.service_name }} renews in {{ r.days_left }} d

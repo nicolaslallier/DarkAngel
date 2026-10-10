@@ -79,6 +79,7 @@ it('shows a row per instance and per backup, flagging what is wrong', async () =
   const backups = wrapper.findAll('[data-test="backup"]')
   expect(backups.map((b) => b.classes('bad'))).toEqual([false, true])
   expect(backups[0].text()).toContain('1.5 KB')
+  expect(backups[0].text()).not.toContain('Stale')
   expect(backups[1].text()).toContain('No backup')
 })
 
@@ -86,6 +87,7 @@ it('shows the overdue invoice', async () => {
   const wrapper = await render()
 
   expect(wrapper.find('[data-test="due"]').classes('bad')).toBe(true)
+  expect(wrapper.find('[data-test="due"]').text()).toContain('Overdue')
 })
 
 it('points a person without a household to the household page and asks nothing else', async () => {
@@ -116,7 +118,41 @@ it('warns when the collector stopped', async () => {
 
   const wrapper = await render()
 
-  expect(wrapper.find('[data-test="collector-stale"]').exists()).toBe(true)
+  expect(wrapper.findAll('[data-test="collector-stale"]')).toHaveLength(1)
+  expect(wrapper.find('.grid [data-test="collector-stale"]').exists()).toBe(false)
+})
+
+it('labels a stale backup that has a date', async () => {
+  const body = infraBody()
+  body.backups[0].stale = true
+  vi.mocked(getInfra).mockResolvedValue(body)
+
+  const wrapper = await render()
+
+  expect(wrapper.findAll('[data-test="backup"]')[0].text()).toContain('Stale')
+})
+
+it('shows Loading… and no empty message while requests are pending', async () => {
+  vi.mocked(getInfra).mockReturnValue(new Promise(() => {}))
+  vi.mocked(getUpcoming).mockReturnValue(new Promise(() => {}))
+
+  const wrapper = await render()
+
+  expect(wrapper.text()).toContain('Loading…')
+  expect(wrapper.text()).not.toContain('Nothing collected yet')
+  expect(wrapper.text()).not.toContain('Nothing due')
+})
+
+it('shows no empty message next to an error', async () => {
+  vi.mocked(getInfra).mockRejectedValue(new Error('boom'))
+  vi.mocked(getUpcoming).mockRejectedValue(new Error('bang'))
+
+  const wrapper = await render()
+
+  expect(wrapper.text()).toContain('boom')
+  expect(wrapper.text()).toContain('bang')
+  expect(wrapper.text()).not.toContain('Nothing collected yet')
+  expect(wrapper.text()).not.toContain('Nothing due')
 })
 
 it('says nothing was collected yet when both lists are empty', async () => {
