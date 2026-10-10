@@ -68,6 +68,47 @@
         "title": "Body_upload_invoices_api_invoices_post",
         "type": "object"
       },
+      "CostPoint": {
+        "properties": {
+          "flagged": {
+            "title": "Flagged",
+            "type": "boolean"
+          },
+          "invoice_id": {
+            "format": "uuid",
+            "title": "Invoice Id",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "total": {
+            "title": "Total",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id",
+          "month",
+          "total",
+          "reference",
+          "flagged"
+        ],
+        "title": "CostPoint",
+        "type": "object"
+      },
       "FileInfo": {
         "properties": {
           "content_type": {
@@ -822,6 +863,40 @@
         "title": "MemberInfo",
         "type": "object"
       },
+      "MonthTotal": {
+        "properties": {
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "total"
+        ],
+        "title": "MonthTotal",
+        "type": "object"
+      },
+      "MonthlyCosts": {
+        "properties": {
+          "months": {
+            "items": {
+              "$ref": "#/components/schemas/MonthTotal"
+            },
+            "title": "Months",
+            "type": "array"
+          }
+        },
+        "required": [
+          "months"
+        ],
+        "title": "MonthlyCosts",
+        "type": "object"
+      },
       "PaidBody": {
         "properties": {
           "paid": {
@@ -1053,6 +1128,41 @@
         "title": "ProviderPatch",
         "type": "object"
       },
+      "Renewal": {
+        "properties": {
+          "contract_end": {
+            "format": "date",
+            "title": "Contract End",
+            "type": "string"
+          },
+          "days_left": {
+            "title": "Days Left",
+            "type": "integer"
+          },
+          "provider_name": {
+            "title": "Provider Name",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "service_name": {
+            "title": "Service Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service_id",
+          "provider_name",
+          "service_name",
+          "contract_end",
+          "days_left"
+        ],
+        "title": "Renewal",
+        "type": "object"
+      },
       "RolePatch": {
         "properties": {
           "role": {
@@ -1068,6 +1178,39 @@
           "role"
         ],
         "title": "RolePatch",
+        "type": "object"
+      },
+      "ServiceCosts": {
+        "properties": {
+          "expected_monthly_cost": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Monthly Cost"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/CostPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "threshold_pct": {
+            "title": "Threshold Pct",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_monthly_cost",
+          "threshold_pct",
+          "points"
+        ],
+        "title": "ServiceCosts",
         "type": "object"
       },
       "ServiceIn": {
@@ -1454,6 +1597,76 @@
         "title": "TaxLine",
         "type": "object"
       },
+      "Upcoming": {
+        "properties": {
+          "invoices": {
+            "items": {
+              "$ref": "#/components/schemas/UpcomingInvoice"
+            },
+            "title": "Invoices",
+            "type": "array"
+          },
+          "renewals": {
+            "items": {
+              "$ref": "#/components/schemas/Renewal"
+            },
+            "title": "Renewals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "invoices",
+          "renewals"
+        ],
+        "title": "Upcoming",
+        "type": "object"
+      },
+      "UpcomingInvoice": {
+        "properties": {
+          "due_on": {
+            "format": "date",
+            "title": "Due On",
+            "type": "string"
+          },
+          "invoice_id": {
+            "format": "uuid",
+            "title": "Invoice Id",
+            "type": "string"
+          },
+          "overdue": {
+            "title": "Overdue",
+            "type": "boolean"
+          },
+          "provider_name": {
+            "title": "Provider Name",
+            "type": "string"
+          },
+          "service_id": {
+            "format": "uuid",
+            "title": "Service Id",
+            "type": "string"
+          },
+          "service_name": {
+            "title": "Service Name",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invoice_id",
+          "service_id",
+          "provider_name",
+          "service_name",
+          "total",
+          "due_on",
+          "overdue"
+        ],
+        "title": "UpcomingInvoice",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1508,6 +1721,32 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/costs/monthly": {
+      "get": {
+        "operationId": "monthly_costs_api_costs_monthly_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthlyCosts"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Monthly Costs",
+        "tags": [
+          "costs"
+        ]
+      }
+    },
     "/api/files": {
       "get": {
         "description": "Without q/tag: one folder (absent = root). With either: every live file\nof the caller's, wherever it is -- the SPA shows a Location column then.",
@@ -3298,6 +3537,80 @@
         "summary": "Update Service",
         "tags": [
           "providers"
+        ]
+      }
+    },
+    "/api/services/{service_id}/costs": {
+      "get": {
+        "operationId": "service_costs_api_services__service_id__costs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "service_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Service Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceCosts"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Service Costs",
+        "tags": [
+          "costs"
+        ]
+      }
+    },
+    "/api/upcoming": {
+      "get": {
+        "operationId": "upcoming_api_upcoming_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Upcoming"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upcoming",
+        "tags": [
+          "costs"
         ]
       }
     }
