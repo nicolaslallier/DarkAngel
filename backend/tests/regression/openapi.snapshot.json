@@ -1,6 +1,67 @@
 {
   "components": {
     "schemas": {
+      "BackupInfo": {
+        "properties": {
+          "age_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Hours"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "instance": {
+            "title": "Instance",
+            "type": "string"
+          },
+          "last_backup_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Backup At"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "instance",
+          "last_backup_at",
+          "size_bytes",
+          "age_hours",
+          "stale",
+          "checked_at"
+        ],
+        "title": "BackupInfo",
+        "type": "object"
+      },
       "Body_upload_file_api_files_post": {
         "properties": {
           "file": {
@@ -438,6 +499,102 @@
           "members"
         ],
         "title": "HouseholdInfo",
+        "type": "object"
+      },
+      "Infra": {
+        "properties": {
+          "backups": {
+            "items": {
+              "$ref": "#/components/schemas/BackupInfo"
+            },
+            "title": "Backups",
+            "type": "array"
+          },
+          "instances": {
+            "items": {
+              "$ref": "#/components/schemas/InstanceStatus"
+            },
+            "title": "Instances",
+            "type": "array"
+          }
+        },
+        "required": [
+          "instances",
+          "backups"
+        ],
+        "title": "Infra",
+        "type": "object"
+      },
+      "InstanceStatus": {
+        "properties": {
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "environments": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Environments"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reachable": {
+            "title": "Reachable",
+            "type": "boolean"
+          },
+          "stacks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stacks"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "name",
+          "reachable",
+          "version",
+          "environments",
+          "stacks",
+          "checked_at",
+          "error"
+        ],
+        "title": "InstanceStatus",
         "type": "object"
       },
       "InvitationCreate": {
@@ -2666,6 +2823,32 @@
         "summary": "Set Member Role",
         "tags": [
           "household"
+        ]
+      }
+    },
+    "/api/infra": {
+      "get": {
+        "operationId": "infra_api_infra_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Infra"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Infra",
+        "tags": [
+          "infra"
         ]
       }
     },
