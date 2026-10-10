@@ -155,6 +155,14 @@ deploy on SeaweedFS, run `PGADMIN_URL=... CONFIRM=darkangel make files-reset` to
 drop the metadata of files whose bytes stayed behind — run after, it would also
 wipe anything uploaded since. Then deploy, upload a file and download it back.
 
+## Dashboard
+
+The home page (`/`) shows the latest Portainer backup, the state of each
+Portainer instance and the overdue invoices. A separate service,
+`darkangel-collector`, polls Portainer and the backup bucket every five minutes
+and stores what it sees; the page reads that. Setup, the two stack variables
+and how to read the colours are in [docs/dashboard.md](docs/dashboard.md).
+
 ## Service providers
 
 The **Providers** page (`/providers`) tracks the household's service providers
@@ -265,6 +273,13 @@ WSL — cannot break the deploy.
   stack's whole environment on each deploy, so without it every run blanks the
   key and the Files page stops working. Not needed on the webhook path, which
   leaves the stack's environment alone.
+- `PORTAINER_INSTANCES` — the dashboard collector's JSON list of Portainer
+  instances (name, url, api_key), the same value as `PORTAINER_INSTANCES` in
+  `.portainer.env`; see [docs/dashboard.md](docs/dashboard.md). Without it the
+  API path blanks the list on each deploy and the dashboard's cards stay empty.
+- `BACKUP_S3_SECRET_KEY` — the secret of the read-only S3 identity
+  `portainer-backups-ro`, the same value as in `.portainer.env`; blanked the
+  same way if missing.
 
 ### Repository variables
 
