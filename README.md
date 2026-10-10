@@ -313,6 +313,30 @@ stops; only `darkangel-api` keeps running. On a host without that NGINX there is
 nothing to serve the SPA, so look at it with `make dev-backend` and
 `make dev-frontend` instead.
 
+### Backing up Portainer
+
+`make portainers` lists every Portainer instance in `.portainers.env` (version,
+environments, stacks, reachable or not) and `make portainer-backup` stores one
+encrypted native Portainer backup per instance in the Infra SeaweedFS, at
+`s3://portainer-backups/<instance>/<UTC timestamp>.tar.gz.encrypted`.
+
+```sh
+cp .portainers.env.example .portainers.env   # fill in URLs, API keys, password, S3 secret
+make portainers
+make portainer-backup
+```
+
+One-time, in the Infra repo: `make s3-provision app=portainer-backups
+bucket=portainer-backups versioned=1`, then put that identity's secret in
+`S3_BACKUP_SECRET_KEY`. One failing instance does not stop the others; the
+command exits non-zero if any failed. There is no rotation: add a lifecycle
+rule on the bucket if old archives should expire.
+
+**Restore:** an archive restores a fresh Portainer at its first setup screen
+("Restore Portainer from backup") or with the `--restore` flag, and needs
+`PORTAINER_BACKUP_PASSWORD`. Lose the password and the archive is unusable, so
+keep it somewhere other than `.portainers.env`.
+
 ### Deploying from a self-hosted runner
 
 Only needed when Portainer has **no public ingress**. By default `deploy.yml`
