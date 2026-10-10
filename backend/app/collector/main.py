@@ -59,7 +59,7 @@ def run() -> None:
     client = Minio(
         settings.backup_s3_endpoint,
         access_key=settings.backup_s3_access_key,
-        secret_key=settings.backup_s3_secret_key,
+        secret_key=settings.backup_s3_secret_key.get_secret_value(),
         secure=settings.backup_s3_secure,
     )
     while True:

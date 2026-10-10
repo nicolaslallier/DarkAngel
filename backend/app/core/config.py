@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,16 +8,25 @@ class PortainerInstance(BaseModel):
     """One Portainer the collector polls. `name` becomes the bucket prefix the
     backup script writes to (lower-cased, `_` to `-`)."""
 
+    # SecretStr masks repr/dump; hide_input_in_errors keeps the raw dict (with the
+    # key) out of a ValidationError message.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     name: str
     url: str
-    api_key: str
+    api_key: SecretStr
     insecure: bool = False  # self-signed certificate
 
 
 class Settings(BaseSettings):
     """Application settings, overridable via environment variables or a .env file."""
 
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="DARKANGEL_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="DARKANGEL_",
+        extra="ignore",
+        hide_input_in_errors=True,  # a bad portainer_instances must not echo its keys
+    )
 
     app_name: str = "DarkAngel API"
     version: str = "0.1.0"
@@ -63,7 +72,7 @@ class Settings(BaseSettings):
     backup_s3_secure: bool = False
     backup_s3_bucket: str = "portainer-backups"
     backup_s3_access_key: str = "portainer-backups-ro"
-    backup_s3_secret_key: str = ""
+    backup_s3_secret_key: SecretStr = SecretStr("")
     # Older than this = the dashboard marks the backup stale. Read by the API.
     backup_max_age_hours: int = 48
     collector_interval_seconds: int = 300

@@ -4,9 +4,11 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import httpx
+import pytest
+from pydantic import ValidationError
 
 from app.collector import backups, main, portainer
-from app.core.config import PortainerInstance
+from app.core.config import PortainerInstance, Settings
 from tests.conftest import FakeInfraRepository
 
 NOW = datetime(2026, 10, 10, 12, 0, tzinfo=UTC)
@@ -214,3 +216,18 @@ def test_a_malformed_url_does_not_stop_the_next_instance():
         run_once(repo, [BAD, infra], FakeBucket(), mp, check)
 
     assert [(s.instance, s.reachable) for s in repo.statuses] == [("bad", False), ("infra", True)]
+
+
+def test_the_api_key_stays_out_of_repr():
+    instance = PortainerInstance(name="H", url="https://h", api_key="sekret-key")
+
+    assert "sekret-key" not in repr(instance)
+
+
+def test_an_invalid_instances_setting_does_not_leak_the_key(monkeypatch):
+    monkeypatch.setenv("DARKANGEL_PORTAINER_INSTANCES", '[{"name":"H","api_key":"sekret-key"}]')
+
+    with pytest.raises(ValidationError) as raised:
+        Settings(_env_file=None)
+
+    assert "sekret-key" not in str(raised.value)

@@ -40,7 +40,7 @@ def check(instance: PortainerInstance, transport: httpx.BaseTransport | None = N
     try:
         with httpx.Client(
             base_url=instance.url.rstrip("/"),
-            headers={"X-API-KEY": instance.api_key},
+            headers={"X-API-KEY": instance.api_key.get_secret_value()},
             timeout=10.0,
             verify=not instance.insecure,
             transport=transport,
