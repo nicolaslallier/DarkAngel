@@ -19,6 +19,8 @@ reports/
 .env.local
 # Portainer API token (Docker-daemon-root); see .portainer.env.example
 .portainer.env
+# Portainer instances + keys for scripts/portainer-backup.sh; see .portainers.env.example
+.portainers.env
 # GitHub PAT that may register self-hosted runners; see 'make runner-env'
 .runner.env
 

@@ -39,7 +39,7 @@ DIST ?= dist
         test test-backend test-unit test-integration test-regression test-frontend \
         snapshot services-test-up services-test-down migrate coverage coverage-backend coverage-frontend \
         build build-backend build-frontend preview \
-        up pull down delete webhook stack-selftest deploy keycloak-client postgres files-reset \
+        up pull down delete webhook stack-selftest portainers portainer-backup portainer-backup-selftest deploy keycloak-client postgres files-reset \
         runner-env check-runner-env runner-up runner-down runner-restart \
         runner-logs runner-status runner-pull runner-shell \
         up-local down-local restart ps logs \
@@ -247,6 +247,17 @@ webhook: ## Print the stack's redeploy webhook (creating one if needed)
 
 stack-selftest: ## Check portainer-stack.sh's helpers without calling Portainer
 	@$(STACK_SH) selftest
+
+BACKUP_SH := ./scripts/portainer-backup.sh
+
+portainers: ## List the Portainer instances in .portainers.env (version, environments, stacks, reachability)
+	@$(BACKUP_SH) list
+
+portainer-backup: ## Back up every Portainer instance to SeaweedFS (bucket portainer-backups, encrypted)
+	@$(BACKUP_SH) backup
+
+portainer-backup-selftest: ## Check portainer-backup.sh's helpers without calling Portainer or S3
+	@$(BACKUP_SH) selftest
 
 keycloak-client: ## Create/update the darkangel-spa client in Keycloak realm ea (INFRA_ENV, KC_CACERT)
 	@scripts/provision-keycloak-client.sh
