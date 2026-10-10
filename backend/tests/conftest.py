@@ -17,6 +17,7 @@ from app.core.clock import today
 from app.main import app
 from app.models.files import File, Folder
 from app.models.households import Household, HouseholdMember
+from app.models.providers import Provider, Service
 from app.repositories.files import NameTaken, QuotaExceeded, file_repository
 from app.repositories.folders import folder_repository
 from app.repositories.households import (
@@ -25,6 +26,7 @@ from app.repositories.households import (
     InvitationInvalid,
     household_repository,
 )
+from app.repositories.providers import provider_repository
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 ISSUER = "https://keycloak.famillelallier.net/realms/ea"
@@ -437,14 +439,84 @@ class FakeHouseholdRepository:
         return self.add_member(invitation["household_id"], sub, invitation["role"])
 
 
+class FakeProviderRepository:
+    """ProviderRepository over lists. `invoices` is wired by the ledger fixture
+    once the invoice fake exists (Task 5); `invoices_for_service` is the
+    stand-in until then."""
+
+    def __init__(self):
+        self.providers: list[Provider] = []
+        self.service_rows: list[Service] = []
+        self.invoices = None
+        self.invoices_for_service: dict[uuid.UUID, bool] = {}
+
+    def list_providers(self, household_id):
+        rows = [p for p in self.providers if p.household_id == household_id]
+        return sorted(rows, key=lambda p: (p.name.lower(), p.id))
+
+    def get_provider(self, household_id, provider_id):
+        return next(
+            (p for p in self.providers if p.household_id == household_id and p.id == provider_id),
+            None,
+        )
+
+    def create_provider(self, household_id, **fields):
+        row = Provider(id=uuid.uuid4(), household_id=household_id, **fields)
+        self.providers.append(row)
+        return row
+
+    def update_provider(self, provider, **changes):
+        for field, value in changes.items():
+            setattr(provider, field, value)
+        return provider
+
+    def delete_provider(self, provider):
+        self.providers.remove(provider)
+
+    def services(self, household_id, provider_id=None, include_archived=False):
+        return [
+            s
+            for s in self.service_rows
+            if s.household_id == household_id
+            and (provider_id is None or s.provider_id == provider_id)
+            and (include_archived or not s.archived)
+        ]
+
+    def get_service(self, household_id, service_id):
+        return next(
+            (s for s in self.service_rows if s.household_id == household_id and s.id == service_id),
+            None,
+        )
+
+    def create_service(self, household_id, provider_id, **fields):
+        row = Service(id=uuid.uuid4(), household_id=household_id, provider_id=provider_id, **fields)
+        self.service_rows.append(row)
+        return row
+
+    def update_service(self, service, **changes):
+        for field, value in changes.items():
+            setattr(service, field, value)
+        return service
+
+    def delete_service(self, service):
+        self.service_rows.remove(service)
+
+    def service_has_invoices(self, service_id):
+        if self.invoices is not None:
+            return any(i.service_id == service_id for i in self.invoices.rows)
+        return self.invoices_for_service.get(service_id, False)
+
+
 @pytest.fixture
 def ledger():
-    """Swap the household repository (and, from Tasks 3 and 5, the provider and
-    invoice repositories) for in-memory fakes. Explicit, never autouse."""
-    fake = SimpleNamespace(households=FakeHouseholdRepository())
+    """Swap the household and provider repositories (and, from Task 5, the
+    invoice repository) for in-memory fakes. Explicit, never autouse."""
+    fake = SimpleNamespace(households=FakeHouseholdRepository(), providers=FakeProviderRepository())
     app.dependency_overrides[household_repository] = lambda: fake.households
+    app.dependency_overrides[provider_repository] = lambda: fake.providers
     yield fake
     app.dependency_overrides.pop(household_repository, None)
+    app.dependency_overrides.pop(provider_repository, None)
 
 
 @pytest.fixture
