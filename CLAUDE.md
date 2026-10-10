@@ -55,6 +55,11 @@ guide — read it before adding a test.
   `repositories/folders.py` hold the folder tree. Every query filters on the
   caller's `sub`. Tests swap `s3_client()`
   and both repositories for in-memory fakes (`tests/conftest.py`).
+- `core/household.py` — the `Reader` / `Writer` / `Owner` dependencies resolve the
+  caller's household and role; routes for providers, services and invoices take one of
+  them instead of `Claims`, and every repository query filters on `household_id`.
+  `api/routes/household.py`, `providers.py`, `invoices.py`, `costs.py` and
+  `invoice_extraction.py` (Ollama reads invoice PDFs; mirrors `summary.py`).
 
 **Frontend** (`frontend/src/`)
 
@@ -63,7 +68,10 @@ guide — read it before adding a test.
   response types.
 - `auth.ts` — the `oidc-client-ts` `UserManager` (client `darkangel-spa`); the
   router's `beforeEach` sends every non-`meta.public` route through login.
-- `stores/` — Pinia setup stores holding async state (`loading`/`error`/data).
+- `stores/` — Pinia setup stores holding async state (`loading`/`error`/data);
+  `stores/{household,providers,invoices}.ts` and the
+  `views/{Providers,Provider,Service,Review,Household,Join}View.vue` pages hold the
+  service-providers feature.
 - `views/` + `router/index.ts` — routed pages; `@/` is aliased to `src/`.
 
 Requests use the relative `/api` base so the Vite proxy (`vite.config.ts`)

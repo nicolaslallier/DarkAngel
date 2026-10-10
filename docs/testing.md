@@ -8,13 +8,13 @@ remember and none to forget.
 
 | Suite | Where | What is real | CI job |
 |---|---|---|---|
-| Backend unit | `backend/tests/unit/` (115 tests) | Nothing outside the process. Object storage is `FakeS3`, the database is `FakeFileRepository`, Keycloak is a fake JWKS. | `backend-unit` |
-| Backend regression | `backend/tests/regression/` (27 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
-| Backend integration | `backend/tests/integration/` (75 tests) | A real SeaweedFS in a throwaway bucket, and a real PostgreSQL migrated to head. Auth stays faked. | `backend-integration` |
+| Backend unit | `backend/tests/unit/` (217 tests) | Nothing outside the process. Object storage is `FakeS3`, the database is `FakeFileRepository`, Keycloak is a fake JWKS. | `backend-unit` |
+| Backend regression | `backend/tests/regression/` (28 tests) | Same as unit. Each file pins one fixed bug, or the API contract. | `backend-unit` |
+| Backend integration | `backend/tests/integration/` (105 tests) | A real SeaweedFS in a throwaway bucket, and a real PostgreSQL migrated to head. Auth stays faked. | `backend-integration` |
 | Frontend unit | `frontend/tests/unit/` | jsdom. `fetch` and `oidc-client-ts` are mocked. | `frontend` |
 | Frontend regression | `frontend/tests/regression/` | Same as frontend unit. | `frontend` |
 
-Frontend unit + regression together are 73 tests across 10 files (Vitest 5,
+Frontend unit + regression together are 160 tests across 22 files (Vitest 5,
 `frontend/vite.config.ts`'s `test` block).
 
 Route logic is unit-tested against `FakeFileRepository` and the real SQL behind
@@ -147,7 +147,7 @@ for the rest of the session — and then runs `alembic upgrade head` itself.
 Nothing in CI migrates separately; the fixture is the migration step.
 
 The per-test `db` fixture truncates between tests:
-`TRUNCATE audit_log, file_versions, files, folders RESTART IDENTITY CASCADE`.
+`TRUNCATE audit_log, file_versions, files, folders, households RESTART IDENTITY CASCADE`.
 TRUNCATE, not DELETE, because `audit_log` carries a `BEFORE DELETE` trigger
 that makes it append-only and TRUNCATE does not fire row triggers.
 
@@ -252,9 +252,9 @@ them, so no amount of unit testing against the fakes would add a single
 covered line to the real modules. Un-omitted they drag that job to
 76% and it fails the 80 gate for a reason unrelated to test quality.
 
-They are gated instead by `backend-integration`: 22 tests in
+They are gated instead by `backend-integration`: 23 tests in
 `tests/integration/test_repository.py` and 8 in
-`tests/integration/test_backfill.py`. Those 30 alone reach 99% of the
+`tests/integration/test_backfill.py`. Those 31 alone reach 99% of the
 repository and 83% of the backfill script — the single repository miss is the
 `file_repository` DI factory, which they bypass by constructing
 `FileRepository` directly. The factory is covered by the rest of the suite

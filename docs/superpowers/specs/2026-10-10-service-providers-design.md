@@ -1,7 +1,7 @@
 # Fournisseurs de services: spécification
 
 Date: 2026-10-10
-Statut: en attente de révision
+Statut: approuvé
 
 ## 1. But
 
@@ -72,7 +72,7 @@ Montants en `NUMERIC(12,2)`, en dollars canadiens.
 - `household_invitations`: id, household_id, rôle, empreinte du jeton, expiration,
   date d'utilisation, créé par.
 - `providers`: id, household_id, nom, site web, téléphone, courriel, notes.
-- `services`: id, provider_id, household_id, catégorie, numéro de compte, début de contrat,
+- `services`: id, provider_id, household_id, nom, catégorie, numéro de compte, début de contrat,
   fin de contrat, délai du rappel de renouvellement (jours), coût mensuel prévu,
   prélèvement automatique, seuil d'alerte (%, 20 par défaut), archivé.
 - `invoices`: id, household_id, service_id (vide jusqu'à la validation), file_id (vide si
@@ -95,7 +95,9 @@ Lectures: tous les rôles. Écritures: `member` ou `owner`. Gestion du foyer: `o
 - Fournisseurs et services: créer, lire, modifier, archiver. Un service sans facture se
   supprime, sinon on l'archive.
 - Factures: déposer un ou plusieurs PDF (fournisseur ou service présélectionné facultatif),
-  lister (filtres: statut, service, non payées), valider avec corrections, marquer payée.
+  saisir une facture à la main (`POST /api/invoices/manual`), lire le PDF d'une facture
+  (`GET /api/invoices/{id}/pdf`, tous les rôles du foyer), lister (filtres: statut,
+  service, non payées), valider avec corrections, marquer payée.
 - Échéances (`upcoming`): factures à échéance proche, en retard, et renouvellements.
 - Coûts d'un service: série mensuelle et factures signalées.
 
@@ -113,7 +115,12 @@ l'identifiant de l'existante); jeton d'invitation invalide, expiré ou déjà ut
    avec une proposition de création si rien ne correspond.
 4. Succès: statut `to_validate`. Échec (Ollama injoignable, réponse invalide): statut
    `failed`, la facture se saisit à la main.
-5. Au démarrage, les factures restées à `extracting` passent à `failed`.
+5. Au démarrage, les factures restées à `queued` ou `extracting` passent à `failed`.
+
+Sans `DARKANGEL_OLLAMA_URL`, une facture déposée passe directement à `to_validate`.
+L'API ne renvoie jamais le texte brut d'une exception pour une lecture échouée: un
+`ReadError` ou une erreur générique donne un message générique. Les montants lus par le
+modèle sont bornés et arrondis avant d'être enregistrés.
 
 La facture n'est jamais enregistrée comme validée sans action humaine.
 
@@ -151,6 +158,6 @@ Selon `docs/testing.md`.
 
 - Qualité de la lecture par l'IA selon le fournisseur; la validation humaine et la saisie
   manuelle sont le filet de sécurité.
-- Les tâches d'arrière-plan ne survivent pas à un redémarrage (voir §7, point 5).
+- Les tâches d'arrière-plan ne survivent pas à un redémarrage: les factures « queued » ou « extracting » passent à « failed » (voir §7, point 5).
 - Le spec est volumineux; le plan d'implémentation devrait suivre l'ordre foyers, puis
   fournisseurs et services, puis factures et lecture par l'IA, puis historique et alertes.
