@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 
 import CostChart from '@/components/CostChart.vue'
 
@@ -34,4 +34,20 @@ it('keeps the highest point inside the drawing', () => {
   const ys = wrapper.findAll('circle').map((d) => Number(d.attributes('cy')))
   expect(Math.min(...ys)).toBeGreaterThanOrEqual(0)
   expect(Math.max(...ys)).toBeLessThanOrEqual(100)
+})
+
+it('draws two points that share a label without a key clash', () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const wrapper = mount(CostChart, {
+    props: {
+      points: [
+        { label: '2026-01', value: 100 },
+        { label: '2026-01', value: 300, flagged: true },
+      ],
+    },
+  })
+
+  expect(wrapper.findAll('circle').map((d) => d.classes('flagged'))).toEqual([false, true])
+  expect(warn).not.toHaveBeenCalled()
+  warn.mockRestore()
 })

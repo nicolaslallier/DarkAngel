@@ -5,8 +5,9 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { getServiceCosts } from '@/api/costs'
 import { getHousehold } from '@/api/household'
-import { createManualInvoice, listInvoices, setPaid, type Invoice } from '@/api/invoices'
-import { getService } from '@/api/providers'
+import { createManualInvoice, listInvoices, setPaid, uploadInvoices, type Invoice } from '@/api/invoices'
+import { ApiError } from '@/api/client'
+import { getService, updateService } from '@/api/providers'
 import ServiceView from '@/views/ServiceView.vue'
 
 vi.mock('@/auth', () => ({ accessToken: vi.fn(async () => null) }))
@@ -108,4 +109,56 @@ it('hides every write control from a read-only member', async () => {
   expect(wrapper.find('form[data-test="manual"]').exists()).toBe(false)
   expect(wrapper.find('button[data-test="toggle-paid"]').exists()).toBe(false)
   expect(wrapper.find('input[type="file"]').exists()).toBe(false)
+})
+
+it('says "No such service." only for a 404', async () => {
+  vi.mocked(getService).mockRejectedValue(new ApiError('not_found', 404, null))
+  const wrapper = await render()
+
+  expect(wrapper.text()).toContain('No such service.')
+})
+
+it('shows the real message when loading fails otherwise', async () => {
+  vi.mocked(getService).mockRejectedValue(new ApiError('boom', 500, null))
+  const wrapper = await render()
+
+  expect(wrapper.text()).not.toContain('No such service.')
+  expect(wrapper.find('[role="alert"]').text()).toContain('boom')
+})
+
+it('shows the error when the refresh after a write fails', async () => {
+  vi.mocked(setPaid).mockResolvedValue(invoice('A-1', { paid: true }))
+  const wrapper = await render()
+  vi.mocked(listInvoices).mockRejectedValue(new Error('refresh failed'))
+
+  await wrapper.find('button[data-test="toggle-paid"]').trigger('click')
+  await flushPromises()
+
+  expect(wrapper.find('[role="alert"]').text()).toContain('refresh failed')
+})
+
+it('refreshes the list after an upload', async () => {
+  vi.mocked(uploadInvoices).mockResolvedValue([invoice('A-9')])
+  const wrapper = await render()
+  vi.mocked(listInvoices).mockClear()
+  const input = wrapper.find('input[type="file"]')
+  const file = new File(['%PDF'], 'f.pdf', { type: 'application/pdf' })
+
+  Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+  await input.trigger('change')
+  await flushPromises()
+
+  expect(uploadInvoices).toHaveBeenCalledWith([file], { service_id: 's1' })
+  expect(listInvoices).toHaveBeenCalledWith({ service_id: 's1' })
+})
+
+it('refreshes the costs after saving the settings', async () => {
+  vi.mocked(updateService).mockResolvedValue({ ...service, alert_threshold_pct: 5 })
+  const wrapper = await render()
+  vi.mocked(getServiceCosts).mockClear()
+
+  await wrapper.find('form:not([data-test="manual"])').trigger('submit')
+  await flushPromises()
+
+  expect(getServiceCosts).toHaveBeenCalledWith('s1')
 })

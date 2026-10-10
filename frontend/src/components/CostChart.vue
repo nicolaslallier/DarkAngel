@@ -26,8 +26,8 @@ const line = computed(() => dots.value.map((d) => `${d.x},${d.y}`).join(' '))
   <svg v-else :viewBox="`0 0 ${WIDTH} ${HEIGHT}`" role="img" aria-label="Cost history">
     <polyline :points="line" fill="none" stroke="currentColor" stroke-width="2" />
     <circle
-      v-for="d in dots"
-      :key="d.label"
+      v-for="(d, i) in dots"
+      :key="i"
       :cx="d.x"
       :cy="d.y"
       r="3.5"

@@ -80,7 +80,7 @@ it('lists the providers with a link to each service', async () => {
   const wrapper = await render()
 
   expect(wrapper.find('a[href="/providers/p1"]').text()).toBe('Bell')
-  expect(wrapper.find('a[href="/services/s1"]').text()).toBe('Internet')
+  expect(wrapper.find('[data-test="provider-services"] a[href="/services/s1"]').text()).toBe('Internet')
 })
 
 it('shows the upcoming dues with the overdue ones marked, and the renewals', async () => {

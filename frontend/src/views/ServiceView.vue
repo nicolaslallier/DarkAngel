@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { ApiError } from '@/api/client'
 import { getServiceCosts, type ServiceCosts } from '@/api/costs'
 import { listInvoices, type Invoice } from '@/api/invoices'
 import { getService, type Service, type ServiceInput } from '@/api/providers'
@@ -24,6 +25,8 @@ const costs = ref<ServiceCosts | null>(null)
 const rows = ref<Invoice[]>([])
 const manual = reactive({ total: '' as string | number, due_on: '', issued_on: '', invoice_number: '' })
 const missing = ref(false)
+const loadError = ref<string | null>(null)
+const errorText = computed(() => loadError.value ?? invoices.error ?? providers.error)
 
 const flagged = computed(() => new Set(costs.value?.points.filter((p) => p.flagged).map((p) => p.invoice_id)))
 const chart = computed(() =>
@@ -37,25 +40,42 @@ async function refresh() {
   ])
 }
 
+// Refresh after a write that already succeeded: a failure is shown, never thrown.
+async function safeRefresh() {
+  loadError.value = null
+  try {
+    await refresh()
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
 onMounted(async () => {
   await household.load()
   if (!household.household) return
   try {
     service.value = await getService(id.value)
     await Promise.all([refresh(), providers.load()])
-  } catch {
-    missing.value = true
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) missing.value = true
+    else loadError.value = e instanceof Error ? e.message : String(e)
   }
 })
 
 async function save(input: ServiceInput) {
   const updated = await providers.updateService(id.value, input)
-  if (updated) service.value = updated
+  if (updated) {
+    service.value = updated
+    await safeRefresh()
+  }
 }
 
 async function archive() {
   const updated = await providers.updateService(id.value, { archived: !service.value?.archived })
-  if (updated) service.value = updated
+  if (updated) {
+    service.value = updated
+    await safeRefresh()
+  }
 }
 
 async function remove() {
@@ -81,23 +101,25 @@ async function addManual() {
   })
   if (created) {
     Object.assign(manual, { total: '', due_on: '', issued_on: '', invoice_number: '' })
-    await refresh()
+    await safeRefresh()
   }
 }
 
 async function togglePaid(invoice: Invoice) {
-  if (await invoices.markPaid(invoice.id, !invoice.paid)) await refresh()
+  if (await invoices.markPaid(invoice.id, !invoice.paid)) await safeRefresh()
 }
 
 async function removeInvoice(invoice: Invoice) {
   if (confirm('Delete this invoice? Its PDF stays in Files.') && (await invoices.remove(invoice.id))) {
-    await refresh()
+    await safeRefresh()
   }
 }
 
 async function onFiles(event: Event) {
   const input = event.target as HTMLInputElement
-  if (input.files?.length) await invoices.upload(Array.from(input.files), { service_id: id.value })
+  if (input.files?.length && (await invoices.upload(Array.from(input.files), { service_id: id.value }))) {
+    await safeRefresh()
+  }
   input.value = ''
 }
 </script>
@@ -105,10 +127,11 @@ async function onFiles(event: Event) {
 <template>
   <section>
     <p><RouterLink to="/providers">← Providers</RouterLink></p>
-    <p v-if="missing" class="error">No such service.</p>
-    <p v-if="invoices.error || providers.error" class="error">
-      {{ invoices.error ?? providers.error }}
+    <p v-if="missing" class="error" role="alert">No such service.</p>
+    <p v-if="household.loaded && !household.household">
+      <RouterLink to="/household">Set up your household</RouterLink> to start tracking providers.
     </p>
+    <p v-if="errorText" class="error" role="alert">{{ errorText }}</p>
 
     <template v-if="service">
       <h1>{{ service.name }}<small v-if="service.archived"> (archived)</small></h1>
@@ -137,7 +160,7 @@ async function onFiles(event: Event) {
             <td>{{ row.due_on ?? '—' }}</td>
             <td>
               {{ money(row.total) }}
-              <span v-if="flagged.has(row.id)" data-test="flag" class="flag" title="Above the usual">▲</span>
+              <span v-if="flagged.has(row.id)" data-test="flag" class="flag" title="Above the usual" aria-label="Above the usual">▲</span>
             </td>
             <td>{{ row.status === 'validated' ? (row.paid ? 'Paid' : 'Unpaid') : row.status }}</td>
             <td v-if="household.canWrite">
@@ -164,10 +187,10 @@ async function onFiles(event: Event) {
 
         <h3>Add an invoice by hand</h3>
         <form data-test="manual" @submit.prevent="addManual">
-          <input v-model="manual.total" name="manual-total" type="number" step="0.01" min="0" placeholder="Total" required />
-          <input v-model="manual.due_on" name="manual-due" type="date" required />
-          <input v-model="manual.issued_on" name="manual-issued" type="date" />
-          <input v-model="manual.invoice_number" name="manual-number" placeholder="Invoice number" />
+          <input v-model="manual.total" name="manual-total" aria-label="Total" type="number" step="0.01" min="0" placeholder="Total" required />
+          <input v-model="manual.due_on" name="manual-due" aria-label="Due date" type="date" required />
+          <input v-model="manual.issued_on" name="manual-issued" aria-label="Issue date" type="date" />
+          <input v-model="manual.invoice_number" name="manual-number" aria-label="Invoice number" placeholder="Invoice number" />
           <button type="submit">Add invoice</button>
         </form>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import type { ServiceInput } from '@/api/providers'
@@ -31,9 +31,12 @@ watch(
   { immediate: true },
 )
 
+const settled = ref(false)
+
 onMounted(async () => {
   await household.load()
   if (household.household) await providers.load()
+  settled.value = true
 })
 
 async function save() {
@@ -67,8 +70,13 @@ async function onFiles(event: Event) {
 <template>
   <section>
     <p><RouterLink to="/providers">← Providers</RouterLink></p>
-    <p v-if="providers.error" class="error">{{ providers.error }}</p>
-    <p v-if="!provider && !providers.loading">No such provider.</p>
+    <p v-if="household.loaded && !household.household">
+      <RouterLink to="/household">Set up your household</RouterLink> to start tracking providers.
+    </p>
+    <p v-if="providers.error || invoices.error" class="error" role="alert">
+      {{ providers.error ?? invoices.error }}
+    </p>
+    <p v-else-if="!provider && settled && household.household">No such provider.</p>
 
     <template v-if="provider">
       <h1>{{ provider.name }}</h1>

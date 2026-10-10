@@ -46,7 +46,7 @@ async function onFiles(event: Event) {
     </p>
 
     <template v-else-if="household.household">
-      <p v-if="providers.error || invoices.error" class="error">
+      <p v-if="providers.error || invoices.error" class="error" role="alert">
         {{ providers.error ?? invoices.error }}
       </p>
 
@@ -60,18 +60,6 @@ async function onFiles(event: Event) {
         Add invoice PDFs
         <input type="file" accept="application/pdf,.pdf" multiple @change="onFiles" />
       </label>
-
-      <h2>All providers</h2>
-      <ul>
-        <li v-for="p in providers.providers" :key="p.id">
-          <RouterLink :to="`/providers/${p.id}`">{{ p.name }}</RouterLink>
-          <ul>
-            <li v-for="s in p.services.filter((x) => !x.archived)" :key="s.id">
-              <RouterLink :to="`/services/${s.id}`">{{ s.name }}</RouterLink>
-            </li>
-          </ul>
-        </li>
-      </ul>
 
       <h2>Upcoming</h2>
       <p v-if="!invoices.upcoming.invoices.length && !invoices.upcoming.renewals.length">
@@ -100,8 +88,20 @@ async function onFiles(event: Event) {
       <h2>Household spending by month</h2>
       <CostChart :points="chart" />
 
+      <h2>All providers</h2>
+      <ul>
+        <li v-for="p in providers.providers" :key="p.id">
+          <RouterLink :to="`/providers/${p.id}`">{{ p.name }}</RouterLink>
+          <ul data-test="provider-services">
+            <li v-for="s in p.services.filter((x) => !x.archived)" :key="s.id">
+              <RouterLink :to="`/services/${s.id}`">{{ s.name }}</RouterLink>
+            </li>
+          </ul>
+        </li>
+      </ul>
+
       <form v-if="household.canWrite" @submit.prevent="addProvider">
-        <input v-model="newName" placeholder="New provider (e.g. Hydro-Québec)" maxlength="200" />
+        <input v-model="newName" aria-label="New provider" placeholder="New provider (e.g. Hydro-Québec)" maxlength="200" />
         <button type="submit">Add provider</button>
       </form>
     </template>
