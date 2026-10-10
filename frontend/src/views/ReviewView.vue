@@ -45,9 +45,19 @@ function fill(invoice: Invoice | null) {
   form.taxes = (raw?.taxes ?? []).map((t) => ({ name: t.name, amount: t.amount }))
 }
 
-async function showPdf(invoice: Invoice | null) {
+let pdfRequest = 0
+let unmounted = false
+// True once the person typed: a refill from the server must not wipe that.
+const dirty = ref(false)
+
+function revokePdf() {
   if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value)
   pdfUrl.value = null
+}
+
+async function showPdf(invoice: Invoice | null) {
+  const mine = ++pdfRequest
+  revokePdf()
   pdfMissing.value = false
   if (!invoice) return
   if (!invoice.has_pdf) {
@@ -55,18 +65,32 @@ async function showPdf(invoice: Invoice | null) {
     return
   }
   try {
-    pdfUrl.value = URL.createObjectURL(await invoicePdf(invoice.id))
+    const url = URL.createObjectURL(await invoicePdf(invoice.id))
+    if (mine !== pdfRequest || unmounted) URL.revokeObjectURL(url)
+    else pdfUrl.value = url
   } catch {
-    pdfMissing.value = true
+    if (mine === pdfRequest) pdfMissing.value = true
   }
 }
 
-// Only a change of selection refills the form: reloading the list must not
-// wipe what the person is typing.
-watch(selectedId, () => {
-  fill(current.value)
-  showPdf(current.value)
-})
+// A new selection refills everything. The same invoice changing status or gaining its PDF
+// (it was still being read) refills too, unless the person already typed.
+// Any other reload leaves the form alone.
+watch(
+  () => [selectedId.value, current.value?.status, current.value?.has_pdf] as const,
+  ([id, , pdf], [oldId, , oldPdf]) => {
+    if (id !== oldId) {
+      invoices.duplicateOf = null
+      dirty.value = false
+      fill(current.value)
+      showPdf(current.value)
+      return
+    }
+    if (id !== null && !current.value) return selectNext()
+    if (!dirty.value) fill(current.value)
+    if (pdf !== oldPdf) showPdf(current.value)
+  },
+)
 
 onMounted(async () => {
   await household.load()
@@ -76,7 +100,9 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value)
+  unmounted = true
+  pdfRequest++
+  revokePdf()
 })
 
 function selectNext() {
@@ -84,7 +110,7 @@ function selectNext() {
 }
 
 async function validate() {
-  if (!current.value) return
+  if (!current.value || invoices.loading) return
   const taxes = form.taxes
     .filter((t) => t.name.trim() && blankToNull(t.amount) !== null)
     .map((t) => ({ name: t.name.trim(), amount: String(t.amount).trim() }))
@@ -121,12 +147,14 @@ function label(invoice: Invoice): string {
 <template>
   <section>
     <h1>Invoices to review</h1>
+    <p v-if="household.error" class="error" role="alert">{{ household.error }}</p>
+    <p v-if="providers.error" class="error" role="alert">{{ providers.error }}</p>
     <p v-if="invoices.error && !invoices.duplicateOf" class="error" role="alert">{{ invoices.error }}</p>
     <p v-if="household.loaded && !household.household">
       <RouterLink to="/household">Set up your household</RouterLink> first.
     </p>
 
-    <p v-else-if="household.household && !invoices.toReview.length && !invoices.loading">
+    <p v-else-if="household.household && !invoices.toReview.length && !invoices.loading && !invoices.error">
       Nothing to review. <RouterLink to="/providers">Back to providers</RouterLink>
     </p>
 
@@ -137,6 +165,7 @@ function label(invoice: Invoice): string {
             type="button"
             data-test="queue-item"
             :class="{ active: i.id === selectedId }"
+            :aria-current="i.id === selectedId ? 'true' : undefined"
             @click="selectedId = i.id"
           >
             {{ label(i) }}
@@ -149,7 +178,7 @@ function label(invoice: Invoice): string {
           Still being read.
           <button type="button" @click="invoices.loadAll()">Refresh</button>
         </p>
-        <p v-else-if="current.status === 'failed'" class="error">
+        <p v-else-if="current.status === 'failed'" class="error" role="alert">
           Could not read this invoice ({{ current.error }}). Fill it in by hand.
         </p>
 
@@ -162,11 +191,11 @@ function label(invoice: Invoice): string {
         <p v-if="pdfMissing" data-test="pdf-missing">PDF missing: the file was deleted.</p>
         <iframe v-else-if="pdfUrl" :src="pdfUrl" title="Invoice PDF" />
 
-        <p v-if="invoices.duplicateOf" data-test="duplicate" class="error">
+        <p v-if="invoices.duplicateOf" data-test="duplicate" class="error" role="alert">
           This number is already recorded for that service (invoice {{ invoices.duplicateOf }}).
         </p>
 
-        <form v-if="household.canWrite" @submit.prevent="validate">
+        <form v-if="household.canWrite" @input="dirty = true" @submit.prevent="validate">
           <label>
             Service
             <select v-model="form.service_id" name="service_id" required>
@@ -196,8 +225,8 @@ function label(invoice: Invoice): string {
             <button type="button" @click="form.taxes.push({ name: '', amount: '' })">Add a tax</button>
           </fieldset>
 
-          <button type="submit" :disabled="reading">Validate</button>
-          <button type="button" data-test="delete" @click="remove">Delete</button>
+          <button type="submit" :disabled="reading || invoices.loading">Validate</button>
+          <button type="button" data-test="delete" :disabled="invoices.loading" @click="remove">Delete</button>
         </form>
       </div>
     </div>
