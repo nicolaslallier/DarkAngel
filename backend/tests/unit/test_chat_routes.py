@@ -317,3 +317,10 @@ def test_send_to_a_conversation_deleted_meanwhile_is_404(chat):
 
     assert send(chat.client, convo.id).status_code == 404
     assert chat.runs._runs == {}  # the reservation was released
+
+
+def test_unauthenticated_is_401_even_when_unconfigured(chat_repo, monkeypatch):
+    monkeypatch.setattr(get_settings(), "llm_url", "")
+    client = TestClient(app)
+    assert client.get("/api/chat/conversations").status_code == 401
+    assert client.get("/api/chat/models").status_code == 401

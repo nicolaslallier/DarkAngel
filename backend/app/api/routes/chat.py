@@ -12,13 +12,16 @@ from starlette.concurrency import run_in_threadpool
 from app.chat.llm import LlmClient, LlmError, llm_client
 from app.chat.prompt import build_context, fallback_title
 from app.chat.runs import Busy, Runs, chat_runs, sse
-from app.core.auth import Claims
+from app.core.auth import Claims, current_claims
 from app.core.clock import Now
 from app.models.chat import Conversation, Message
 from app.repositories.chat import ChatRepo, ChatRepository
 
-# Every chat route answers 503 while the LLM is not configured.
-router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(llm_client)])
+# Every chat route answers 503 while the LLM is not configured, auth first so an
+# anonymous caller learns nothing about that.
+router = APIRouter(
+    prefix="/chat", tags=["chat"], dependencies=[Depends(current_claims), Depends(llm_client)]
+)
 
 Llm = Annotated[LlmClient, Depends(llm_client)]
 RunRegistry = Annotated[Runs, Depends(chat_runs)]
@@ -97,6 +100,13 @@ async def _owned(repo: ChatRepository, sub: str, conversation_id: str) -> Conver
     if row is None:
         raise _not_found()
     return row
+
+
+def _add_message(repo: ChatRepository, *args, **fields) -> Message:
+    try:
+        return repo.add_message(*args, **fields)
+    except LookupError:  # the conversation was deleted since `_owned`
+        raise _not_found() from None
 
 
 @router.get("/models", response_model=list[ModelOut])
@@ -198,7 +208,8 @@ async def _reply(
         user_message, title_from = await run_in_threadpool(prepare, list(history))
         history = await run_in_threadpool(repo.messages, sub, convo.id)
         assistant = await run_in_threadpool(
-            repo.add_message,
+            _add_message,
+            repo,
             sub,
             convo.id,
             role="assistant",
@@ -221,10 +232,8 @@ async def _reply(
             context=context,
             title_from=title_from,
         )
-    except BaseException as exc:
+    except BaseException:
         runs.release(convo.id)
-        if isinstance(exc, LookupError):  # deleted since `_owned`
-            raise _not_found() from None
         raise
     # No await since start(): the subscriber cannot miss an event.
     events = runs.subscribe(sub, convo.id, snapshot=False)
@@ -271,7 +280,7 @@ async def send_message(
     def prepare(history: list[Message]) -> tuple[MessageOut, str | None]:
         title_from = None if history else body.content
         if body.replace_from is None:
-            row = repo.add_message(sub, convo.id, role="user", content=body.content)
+            row = _add_message(repo, sub, convo.id, role="user", content=body.content)
             return MessageOut.of(row), title_from
         edited = next((m for m in history if m.id == body.replace_from and m.role == "user"), None)
         if edited is None:
