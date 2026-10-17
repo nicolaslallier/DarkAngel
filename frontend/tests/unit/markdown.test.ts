@@ -59,6 +59,24 @@ describe('renderMarkdown', () => {
     expect(html).not.toContain('target=')
     expect(html).not.toContain('rel=')
   })
+  it('drops auto-loading media and embed elements and their URLs', () => {
+    for (const raw of [
+      '<video poster="https://x/p.png" src="https://x/v.mp4"></video>',
+      '<audio src="https://x/a.mp3"></audio>',
+      '<svg><image href="https://x/i.png"/></svg>',
+      '<object data="https://x/o"></object>',
+      '<picture><source srcset="https://x/s.png"></picture>',
+      '<embed src="https://x/e"><link href="https://x/l"><meta content="https://x/m">',
+    ]) {
+      const html = renderMarkdown(`ok ${raw}`)
+      expect(html).not.toMatch(/<(video|audio|svg|image|object|source|picture|embed|link|meta)/)
+      expect(html).not.toMatch(/https:\/\/x\//)
+      expect(html).toContain('ok')
+    }
+  })
+  it('renders ordered lists', () => {
+    expect(renderMarkdown('3. a\n4. b')).toMatch(/<ol start="3">/)
+  })
   it('renders GFM tables', () => {
     expect(renderMarkdown('|a|b|\n|-|-|\n|1|2|')).toContain('<table')
   })

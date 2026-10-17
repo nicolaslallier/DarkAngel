@@ -4,7 +4,12 @@ import DOMPurify from 'dompurify'
 import hljs from 'highlight.js/lib/common'
 import { Marked } from 'marked'
 
-const FORBID_TAGS = ['img', 'style', 'form', 'input', 'button', 'textarea', 'select', 'iframe']
+// Allowlist: exactly what marked and our renderers emit (no media, forms, svg).
+const ALLOWED_TAGS = [
+  'p', 'br', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'del', 'code', 'pre',
+  'span', 'blockquote', 'ul', 'ol', 'li', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+]
+const ALLOWED_ATTR = ['href', 'class', 'title', 'target', 'rel', 'align', 'start']
 
 const escapeHtml = (t: string) =>
   t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -33,5 +38,5 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
 })
 
 export function renderMarkdown(text: string): string {
-  return DOMPurify.sanitize(marked.parse(text, { async: false }), { FORBID_TAGS, FORBID_ATTR: ['style'] })
+  return DOMPurify.sanitize(marked.parse(text, { async: false }), { ALLOWED_TAGS, ALLOWED_ATTR, ALLOW_DATA_ATTR: false })
 }
