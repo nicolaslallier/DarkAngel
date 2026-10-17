@@ -63,6 +63,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function abortStream() {
+    openSeq++ // invalidates any in-flight open()/reattach() refetch
+    loading.value = false
     ctrl?.abort()
     ctrl = null
     streaming.value = false
@@ -173,8 +175,9 @@ export const useChatStore = defineStore('chat', () => {
     return ctrl
   }
 
-  async function reattach(id: string, seq: number) {
-    const mine = begin()
+  async function reattach(id: string) {
+    const mine = begin() // bumps openSeq, so read it after
+    const seq = openSeq
     const n = await follow(api.attach(id, mine.signal), mine)
     // Nothing to follow: the reply finished between the fetch and the attach.
     if (n === 0 && seq === openSeq && ctrl === null && !error.value) {
@@ -200,7 +203,7 @@ export const useChatStore = defineStore('chat', () => {
       const c = await api.getConversation(id)
       if (seq !== openSeq) return
       current.value = c
-      if (c.streaming) void reattach(id, seq) // not awaited: open() returns once the page is usable
+      if (c.streaming) void reattach(id) // not awaited: open() returns once the page is usable
     } catch (e) {
       if (seq === openSeq) error.value = message(e)
     } finally {
@@ -208,16 +211,28 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // A request that failed before `start` after we trimmed messages locally: match the server again.
+  async function resync(id: string, n: number, mine: AbortController) {
+    if (n > 0 || mine.signal.aborted || ctrl !== null) return
+    const seq = openSeq
+    try {
+      const fresh = await api.getConversation(id)
+      if (seq === openSeq) current.value = fresh
+    } catch {
+      // keep the original error
+    }
+  }
+
   async function send(content: string, replaceFrom?: string) {
     const mine = begin()
-    openSeq++
     const c = current.value
     if (c && replaceFrom) {
       const i = c.messages.findIndex((m) => m.id === replaceFrom)
       if (i >= 0) c.messages.splice(i)
     }
     const body = { content, model: model.value, replace_from: replaceFrom }
-    await follow(api.sendMessage(c?.id ?? 'new', body, mine.signal), mine)
+    const n = await follow(api.sendMessage(c?.id ?? 'new', body, mine.signal), mine)
+    if (c) await resync(c.id, n, mine)
   }
 
   async function regenerate() {
@@ -225,7 +240,8 @@ export const useChatStore = defineStore('chat', () => {
     const mine = begin()
     const c = current.value
     if (c.messages.at(-1)?.role === 'assistant') c.messages.pop()
-    await follow(api.regenerate(c.id, model.value, mine.signal), mine)
+    const n = await follow(api.regenerate(c.id, model.value, mine.signal), mine)
+    await resync(c.id, n, mine)
   }
 
   async function stop() {

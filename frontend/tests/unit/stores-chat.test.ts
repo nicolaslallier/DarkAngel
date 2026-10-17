@@ -1,7 +1,9 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, expect, it, vi } from 'vitest'
 
+import { ApiError } from '@/api/client'
 import * as api from '@/api/chat'
+import type { Conversation } from '@/api/chat'
 import { useChatStore } from '@/stores/chat'
 
 vi.mock('@/api/chat', () => ({
@@ -196,6 +198,7 @@ it('model defaults to localStorage then first loaded then first', async () => {
 
 it('edit passes replace_from and drops later messages locally', async () => {
   let seen: number | undefined
+  vi.mocked(api.getConversation).mockResolvedValue(conv('c1'))
   vi.mocked(api.sendMessage).mockImplementation(() => {
     seen = useChatStore().current?.messages.length
     return script([])
@@ -217,4 +220,57 @@ it('error event sets error and ends streaming', async () => {
   await s.send('hi')
   expect(s.error).toBe('boom')
   expect(s.streaming).toBe(false)
+})
+
+it('leave during a hanging attach that ends empty does not refetch', async () => {
+  vi.mocked(api.getConversation).mockResolvedValue(conv('c1', true, [msg('a1', 'assistant', '', 'streaming')]))
+  vi.mocked(api.attach).mockImplementation((_i, signal) => hanging([], signal))
+  const s = useChatStore()
+  await s.open('c1')
+  const before = s.current
+  s.leave()
+  await new Promise((r) => setTimeout(r, 0))
+  expect(api.getConversation).toHaveBeenCalledTimes(1)
+  expect(s.current).toBe(before)
+})
+
+it('remove of the open conversation does not refetch or error', async () => {
+  vi.mocked(api.getConversation).mockResolvedValue(conv('c1', true, [msg('a1', 'assistant', '', 'streaming')]))
+  vi.mocked(api.attach).mockImplementation((_i, signal) => hanging([], signal))
+  const s = useChatStore()
+  await s.open('c1')
+  await s.remove('c1')
+  await new Promise((r) => setTimeout(r, 0))
+  expect(api.getConversation).toHaveBeenCalledTimes(1)
+  expect(s.current).toBeNull()
+  expect(s.error).toBeNull()
+})
+
+it('open(null) while a load is pending clears loading', async () => {
+  let resolve!: (c: never) => void
+  vi.mocked(api.getConversation).mockReturnValue(new Promise((r) => (resolve = r)))
+  const s = useChatStore()
+  const opening = s.open('c1')
+  expect(s.loading).toBe(true)
+  await s.open(null)
+  resolve(conv('c1'))
+  await opening
+  expect(s.loading).toBe(false)
+  expect(s.current).toBeNull()
+})
+
+it('edit failing before start refetches so trimmed messages come back', async () => {
+  const full = [msg('u1', 'user'), msg('a1', 'assistant')]
+  vi.mocked(api.sendMessage).mockImplementation(() =>
+    (async function* () {
+      throw new ApiError('conflict', 409, null)
+    })(),
+  )
+  vi.mocked(api.getConversation).mockResolvedValue(conv('c1', false, full))
+  const s = useChatStore()
+  s.current = conv('c1', false, [...full])
+  await s.send('x', 'u1')
+  expect(api.getConversation).toHaveBeenCalled()
+  expect((s.current as Conversation | null)?.messages).toHaveLength(2)
+  expect(s.error).toBe('conflict')
 })
