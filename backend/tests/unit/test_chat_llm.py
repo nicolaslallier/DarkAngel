@@ -14,7 +14,11 @@ GLM = "mlx-community/GLM-4.7-Flash-8bit"
 QWEN = "mlx-community/Qwen3.6-35B-A3B-8bit"
 
 V1_MODELS = {
-    "data": [{"id": GLM, "object": "model", "max_input_tokens": 202752, "max_output_tokens": 1}],
+    "data": [
+        {"id": GLM, "object": "model", "max_input_tokens": 202752, "max_output_tokens": 1},
+        {"id": QWEN, "object": "model"},
+        {"id": "other", "object": "model"},
+    ],
     "object": "list",
 }
 MODEL_INFO = {
@@ -23,7 +27,15 @@ MODEL_INFO = {
             "model_name": GLM,
             "litellm_params": {"model": f"openai/{GLM}", "api_base": "http://127.0.0.1:52415/v1"},
             "model_info": {},
-        }
+        },
+        {
+            "model_name": QWEN,
+            "litellm_params": {"model": f"openai/{QWEN}", "api_base": "http://127.0.0.1:52415/v1"},
+        },
+        {
+            "model_name": "other",
+            "litellm_params": {"model": "openai/other", "api_base": "http://gpu:8000/v1"},
+        },
     ]
 }
 EXO_STATE = {
@@ -68,18 +80,22 @@ def router(seen=None, exo_up=True):
 def test_models_joins_litellm_and_exo_loaded_state():
     seen = []
     models = run(client(router(seen)).models())
-    assert [(m.id, m.loaded, m.context_length) for m in models] == [(GLM, False, 202752)]
+    assert [(m.id, m.loaded, m.context_length) for m in models] == [
+        (GLM, False, 202752),  # on exo, not loaded, LiteLLM context
+        (QWEN, True, 262144),  # loaded, context from exo
+        ("other", None, 32768),  # api_base on another port: unknown, default context
+    ]
     assert all(r.headers["authorization"] == "Bearer k" for r in seen if "llm" in r.url.host)
 
 
 def test_models_loaded_is_none_when_exo_is_down():
     models = run(client(router(exo_up=False)).models())
-    assert models[0].loaded is None
+    assert [m.loaded for m in models] == [None, None, None]
     assert models[0].context_length == 202752
 
 
 def test_models_loaded_is_none_without_exo_url():
-    assert run(client(router(), exo="").models())[0].loaded is None
+    assert {m.loaded for m in run(client(router(), exo="").models())} == {None}
 
 
 def test_models_is_cached_for_ten_seconds():
@@ -186,3 +202,20 @@ def test_llm_client_dependency_is_503_when_unconfigured(monkeypatch):
         llm_client()
     assert exc.value.status_code == 503
     assert exc.value.detail == "Chat is not configured"
+
+
+def test_error_body_is_never_logged(caplog):
+    body = {
+        "error": {"type": "auth_error", "code": "401", "message": "key k, prompt SECRET-PROMPT"}
+    }
+    with caplog.at_level("WARNING"), pytest.raises(LlmError) as exc:
+        collect(client(lambda r: httpx.Response(401, json=body)))
+    assert str(exc.value) == "The model did not answer"
+    assert "auth_error/401" in caplog.text
+    assert "SECRET-PROMPT" not in caplog.text
+    assert "key k" not in caplog.text
+
+
+def test_non_object_chunk_becomes_generic_error():
+    with pytest.raises(LlmError, match="The model did not answer"):
+        collect(client(lambda r: sse("data: []")))

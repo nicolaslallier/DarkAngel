@@ -115,7 +115,7 @@ class LlmClient:
                 context = {m["id"]: m.get("max_input_tokens") for m in listed.json()["data"]}
                 params = {d["model_name"]: d["litellm_params"] for d in info.json()["data"]}
                 loaded, exo_context = await self._exo(http)
-        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError) as exc:
             log.warning("llm model listing failed: %s", type(exc).__name__)
             raise LlmError("The model did not answer") from None
         exo_port = urlparse(self.exo_url).port
@@ -165,7 +165,14 @@ class LlmClient:
         return body
 
     def _fail(self, model: str, status: int, body: str) -> LlmError:
-        log.warning("llm answered %s: %s", status, body[:500])
+        # Never log the body: it can echo the prompt or the key.
+        detail = ""
+        try:
+            err = json.loads(body)["error"]
+            detail = f" ({err.get('type')}/{err.get('code')})"
+        except (ValueError, KeyError, TypeError, AttributeError):
+            pass
+        log.warning("llm answered %s%s", status, detail)
         if any(marker in body for marker in _NOT_LOADED_MARKERS):
             return LlmError(f"{model} is not loaded on the cluster")
         return LlmError("The model did not answer")
@@ -206,7 +213,7 @@ class LlmClient:
                                 yield event
                     if chunk.get("usage"):
                         yield ("usage", chunk["usage"])
-        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError) as exc:
             log.warning("llm stream failed: %s", type(exc).__name__)
             raise LlmError("The model did not answer") from None
         for event in splitter.flush():
@@ -223,7 +230,14 @@ class LlmClient:
             if response.status_code >= 400:
                 raise self._fail(model, response.status_code, response.text)
             text = response.json()["choices"][0]["message"]["content"] or ""
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+        except (
+            httpx.HTTPError,
+            ValueError,
+            KeyError,
+            IndexError,
+            TypeError,
+            AttributeError,
+        ) as exc:
             log.warning("llm completion failed: %s", type(exc).__name__)
             raise LlmError("The model did not answer") from None
         return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
