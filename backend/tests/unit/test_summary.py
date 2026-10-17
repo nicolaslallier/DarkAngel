@@ -128,7 +128,8 @@ def test_material_for_text_and_markdown(store):
     for name in ("notes.txt", "README.md"):
         key = stored(store, f"u/{name}", b"# Plan\nShip it.", "text/markdown")
         prompt, images = summary.material(name, "text/markdown", key, 15)
-        assert prompt.endswith("# Plan\nShip it.") and images == []
+        assert prompt.endswith("# Plan\nShip it.")
+        assert images == []
 
 
 @pytest.mark.parametrize(
@@ -142,7 +143,8 @@ def test_material_for_text_and_markdown(store):
 def test_material_for_documents(store, name, data, expected):
     key = stored(store, f"u/{name}", data)
     prompt, images = summary.material(name, "application/octet-stream", key, len(data))
-    assert expected in prompt and images == []
+    assert expected in prompt
+    assert images == []
 
 
 def test_material_for_an_image_is_the_image_as_a_jpeg(store, monkeypatch):
@@ -343,5 +345,5 @@ def test_xml_with_entities_is_refused():
             f"<w:document {W}><w:body><w:p><w:r><w:t>&b;</w:t></w:r></w:p></w:body></w:document>"
         }
     )
-    with pytest.raises(Exception, match="(?i)entit"):
+    with pytest.raises(Exception, match=r"(?i)entit"):
         summary.docx_text(bomb)

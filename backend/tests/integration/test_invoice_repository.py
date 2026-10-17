@@ -124,7 +124,7 @@ def test_validated_is_ordered_oldest_first_and_filterable(setup):
 
 
 def test_finish_stores_the_result(setup):
-    household, service_id, invoices = setup
+    household, _service_id, invoices = setup
     row = make(invoices, household, None, status="extracting")
 
     invoices.finish(row, "to_validate", extraction={"raw": {}}, fields={"total": Decimal("9.99")})
@@ -135,7 +135,7 @@ def test_finish_stores_the_result(setup):
 
 
 def test_finish_returns_true_while_the_read_is_running(setup):
-    household, service_id, invoices = setup
+    household, _service_id, invoices = setup
     row = make(invoices, household, None, status="queued")
 
     assert invoices.finish(row, "failed", error="x") is True
@@ -153,7 +153,7 @@ def test_a_late_finish_does_not_undo_a_validation_or_a_restart_sweep(setup):
 
 
 def test_reset_stuck_fails_queued_and_extracting_only(setup, db):
-    household, service_id, invoices = setup
+    household, _service_id, invoices = setup
     queued = make(invoices, household, None, status="queued")
     extracting = make(invoices, household, None, status="extracting")
     waiting = make(invoices, household, None, status="to_validate")

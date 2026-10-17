@@ -5,6 +5,7 @@ from collections import Counter
 from datetime import UTC, date, datetime
 from textwrap import shorten
 from types import SimpleNamespace
+from typing import ClassVar
 
 import jwt
 import pytest
@@ -170,7 +171,7 @@ class FakeFileRepository:
             if r.owner_sub == owner_sub and r.deleted_at is None and r.status == "ready"
         ]
 
-    SORT_KEYS = {
+    SORT_KEYS: ClassVar = {
         "name": lambda r: r.name.lower(),
         "size": lambda r: r.size_bytes,
         "updated_at": lambda r: r.updated_at,

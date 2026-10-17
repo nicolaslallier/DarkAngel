@@ -108,7 +108,8 @@ def test_an_unknown_provider_is_proposed_as_new():
     _, extraction = ie.build({"provider": "Vidéotron", "service": "Internet"}, PROVIDERS, SERVICES)
 
     candidates = extraction["candidates"]
-    assert candidates["provider"] is None and candidates["service"] is None
+    assert candidates["provider"] is None
+    assert candidates["service"] is None
     assert (candidates["new_provider"], candidates["new_service"]) == ("Vidéotron", "Internet")
 
 

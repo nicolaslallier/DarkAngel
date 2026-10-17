@@ -69,7 +69,9 @@ def test_the_database_keeps_only_the_hash(households, db):
 
     stored = db.execute(text("SELECT token_hash FROM household_invitations")).scalars().all()
 
-    assert len(stored) == 1 and len(stored[0]) == 64 and token not in stored[0]
+    assert len(stored) == 1
+    assert len(stored[0]) == 64
+    assert token not in stored[0]
 
 
 def test_roles_and_removal_are_scoped_to_the_household(households):

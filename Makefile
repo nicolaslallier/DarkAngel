@@ -35,7 +35,7 @@ DIST ?= dist
 .PHONY: help version doctor doctor-backend doctor-frontend \
         install install-backend install-frontend install-ci \
         dev-backend dev-frontend backend frontend \
-        lint lint-backend lint-frontend format format-check typecheck \
+        lint lint-backend lint-backend-verbose lint-frontend format format-check typecheck \
         test test-backend test-unit test-integration test-regression test-frontend \
         snapshot services-test-up services-test-down migrate coverage coverage-backend coverage-frontend \
         build build-backend build-frontend preview \
@@ -123,13 +123,22 @@ preview: build-frontend ## Serve the production frontend build locally
 
 lint: lint-backend lint-frontend ## Lint both sides
 
-lint-backend: $(PY) ## ruff check on the backend
-	cd $(BACKEND) && .venv/bin/python -m ruff check .
+lint-backend: $(PY) ## ruff check on the backend (per-rule breakdown on failure)
+	@echo ">> ruff: linting $(BACKEND)"
+	@cd $(BACKEND) && .venv/bin/python -m ruff check --statistics .
+	@echo ">> ruff: all checks passed"
+
+lint-backend-verbose: $(PY) ## ruff check with full file trace and rule breakdown
+	@echo ">> ruff (verbose): linting $(BACKEND)"
+	@cd $(BACKEND) && .venv/bin/python -m ruff check -v --statistics .
+	@echo ">> ruff: all checks passed"
 
 lint-frontend: typecheck ## Type-check the frontend (no separate JS linter yet)
 
 typecheck: ## vue-tsc type-check without emitting
+	@echo ">> vue-tsc: type-checking $(FRONTEND)"
 	cd $(FRONTEND) && $(NPM) exec -- vue-tsc --build --force
+	@echo ">> vue-tsc: no type errors"
 
 format: $(PY) ## Apply ruff formatting and import fixes to the backend
 	cd $(BACKEND) && .venv/bin/python -m ruff format .
