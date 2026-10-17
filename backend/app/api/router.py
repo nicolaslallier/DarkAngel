@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
-from app.api.routes import costs as cost_routes
 from app.api.routes import (
+    chat,
     files,
     folders,
     health,
@@ -12,6 +12,7 @@ from app.api.routes import (
     metrics,
     providers,
 )
+from app.api.routes import costs as cost_routes
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health.router)
@@ -25,3 +26,4 @@ api_router.include_router(invoices.router)
 api_router.include_router(cost_routes.router)
 api_router.include_router(infra.router)
 api_router.include_router(metrics.router)
+api_router.include_router(chat.router)

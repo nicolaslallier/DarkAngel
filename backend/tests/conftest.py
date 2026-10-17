@@ -1,7 +1,10 @@
+import asyncio
+import json
 import secrets
 import time
 import uuid
 from collections import Counter
+from contextlib import nullcontext
 from datetime import UTC, date, datetime
 from textwrap import shorten
 from types import SimpleNamespace
@@ -10,9 +13,13 @@ from typing import ClassVar
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi.testclient import TestClient
 from minio.error import S3Error
 
+from app import main
 from app.api.routes import files
+from app.chat.llm import ModelInfo, llm_client
+from app.chat.runs import Runs, chat_runs
 from app.core import auth
 from app.core.clock import today
 from app.main import app
@@ -867,3 +874,66 @@ def chat_repo():
     app.dependency_overrides[chat_repository] = lambda: fake
     yield fake
     app.dependency_overrides.pop(chat_repository, None)
+
+
+WAIT = ("wait",)  # FakeLlm.stream pauses here until `gate` is set
+
+
+class FakeLlm:
+    """LlmClient stand-in. `gate`/`waiting` are asyncio events on the app's loop:
+    set `gate` through `client.portal.call(llm.gate.set)`."""
+
+    def __init__(self, events=(("content", "Hello"),), title="Smart title"):
+        self.events = list(events)
+        self.title = title
+        self.listed = [ModelInfo("m", True, 32768), ModelInfo("cloud", None, 8000)]
+        self.gate = asyncio.Event()
+        self.waiting = asyncio.Event()
+        self.streams: list[tuple[str, list[dict]]] = []
+
+    async def models(self):
+        return self.listed
+
+    async def stream(self, model, messages):
+        self.streams.append((model, messages))
+        for event in self.events:
+            if event == WAIT:
+                self.waiting.set()
+                await self.gate.wait()
+                continue
+            yield event
+
+    async def complete(self, model, messages):
+        return self.title
+
+
+def sse_events(body: str) -> list[tuple[str, dict]]:
+    out = []
+    for block in body.strip().split("\n\n"):
+        lines = dict(line.split(": ", 1) for line in block.splitlines())
+        out.append((lines["event"], json.loads(lines["data"])))
+    return out
+
+
+def wait_until(condition, seconds=5.0):
+    deadline = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.01)
+
+
+@pytest.fixture
+def chat(chat_repo, monkeypatch):
+    """A live app (runs outlive a request) over the fake repository, a FakeLlm and
+    a fresh Runs registry. Unit tests never touch the DB, so no startup sweep."""
+    monkeypatch.setattr(main, "reset_interrupted", lambda: None)
+    llm = FakeLlm()
+    runs = Runs(store=lambda: nullcontext(chat_repo))
+    app.dependency_overrides[llm_client] = lambda: llm
+    app.dependency_overrides[chat_runs] = lambda: runs
+    with TestClient(app) as client:
+        yield SimpleNamespace(client=client, repo=chat_repo, runs=runs, llm=llm)
+        client.portal.call(llm.gate.set)
+        wait_until(lambda: not runs._runs)
+    app.dependency_overrides.pop(llm_client, None)
+    app.dependency_overrides.pop(chat_runs, None)
