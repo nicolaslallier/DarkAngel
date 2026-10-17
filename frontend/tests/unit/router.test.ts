@@ -53,3 +53,12 @@ it('lets the callback route through without a token', async () => {
   expect(signIn).not.toHaveBeenCalled()
   expect(router.currentRoute.value.path).toBe('/auth/callback')
 })
+
+it('/chat/abc resolves to the chat view', async () => {
+  await router.push('/chat/abc')
+
+  expect(router.currentRoute.value.name).toBe('chat')
+  expect(router.currentRoute.value.params.id).toBe('abc')
+  await router.push('/chat')
+  expect(router.currentRoute.value.name).toBe('chat')
+})
