@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, apiGet, apiRequest } from '@/api/client'
+import { ApiError, apiGet, apiRequest, apiStream } from '@/api/client'
 import { accessToken } from '@/auth'
 
 // The client is the only module that calls fetch; auth is the only thing it
@@ -37,6 +37,7 @@ describe('apiRequest', () => {
       method: 'GET',
       headers: { Authorization: 'Bearer a-token' },
       body: undefined,
+      signal: undefined,
     })
   })
 
@@ -128,4 +129,80 @@ it('sends a Content-Type only when one is given', async () => {
   await apiRequest('PATCH', '/files/1', '{}', 'application/json')
 
   expect(fetchMock.mock.calls[0][1].headers).toEqual({ 'Content-Type': 'application/json' })
+})
+
+describe('apiStream', () => {
+  const enc = new TextEncoder()
+
+  function streamOf(chunks: (string | Uint8Array)[], status = 200) {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const c of chunks) controller.enqueue(typeof c === 'string' ? enc.encode(c) : c)
+        controller.close()
+      },
+    })
+    return { ok: true, status, body, json: async () => ({}) } as unknown as Response
+  }
+
+  async function collect(gen: AsyncGenerator<{ event: string; data: unknown }>) {
+    const out = []
+    for await (const e of gen) out.push(e)
+    return out
+  }
+
+  const signal = new AbortController().signal
+
+  it('parses named events across chunk boundaries', async () => {
+    fetchMock.mockResolvedValue(streamOf(['event: con', 'tent\ndata: {"text"', ':"hi"}\n\n']))
+
+    expect(await collect(apiStream('POST', '/x', { a: 1 }, signal))).toEqual([
+      { event: 'content', data: { text: 'hi' } },
+    ])
+    expect(fetchMock.mock.calls[0][1].body).toBe('{"a":1}')
+    expect(fetchMock.mock.calls[0][1].headers['Content-Type']).toBe('application/json')
+  })
+
+  it('decodes a multi-byte character split between chunks', async () => {
+    const bytes = enc.encode('event: content\ndata: {"text":"é"}\n\n')
+    const at = bytes.indexOf(0xc3) + 1
+    fetchMock.mockResolvedValue(streamOf([bytes.slice(0, at), bytes.slice(at)]))
+
+    expect(await collect(apiStream('POST', '/x', undefined, signal))).toEqual([
+      { event: 'content', data: { text: 'é' } },
+    ])
+  })
+
+  it('ignores comment lines', async () => {
+    fetchMock.mockResolvedValue(
+      streamOf([': keepalive\n\nevent: done\n: note\ndata: {"ok":true}\n\n']),
+    )
+
+    expect(await collect(apiStream('GET', '/x', undefined, signal))).toEqual([
+      { event: 'done', data: { ok: true } },
+    ])
+  })
+
+  it('yields nothing on 204', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 204, body: null } as unknown as Response)
+
+    expect(await collect(apiStream('GET', '/x', undefined, signal))).toEqual([])
+  })
+
+  it('throws ApiError with the server detail on 409', async () => {
+    fetchMock.mockResolvedValue(response(409, { detail: 'A reply is already running' }))
+
+    const error = await collect(apiStream('POST', '/x', {}, signal)).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).status).toBe(409)
+    expect((error as ApiError).message).toBe('A reply is already running')
+  })
+
+  it('passes the AbortSignal to fetch', async () => {
+    fetchMock.mockResolvedValue(streamOf([]))
+
+    await collect(apiStream('GET', '/x', undefined, signal))
+
+    expect(fetchMock.mock.calls[0][1].signal).toBe(signal)
+  })
 })
