@@ -4,13 +4,14 @@ import { ref } from 'vue'
 import type { ModelInfo } from '@/api/chat'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
 
-defineProps<{ streaming: boolean; models: ModelInfo[]; model: string }>()
+const props = defineProps<{ streaming: boolean; models: ModelInfo[]; model: string }>()
 const emit = defineEmits<{ send: [text: string]; stop: []; select: [id: string] }>()
 
 const text = ref('')
 const picking = ref(false)
 
 function submit() {
+  if (props.streaming) return
   const t = text.value.trim()
   if (!t) return
   emit('send', t)

@@ -41,3 +41,12 @@ it('lists models with loaded badges and emits select', async () => {
   await w.findAll('li button').find((b) => b.text().startsWith('b'))!.trigger('click')
   expect(w.emitted('select')![0]).toEqual(['b'])
 })
+
+it('does not send on Enter while streaming, and keeps the text', async () => {
+  const w = render(true)
+  const ta = w.find('textarea')
+  await ta.setValue('next')
+  await ta.trigger('keydown', { key: 'Enter' })
+  expect(w.emitted('send')).toBeUndefined()
+  expect((ta.element as HTMLTextAreaElement).value).toBe('next')
+})

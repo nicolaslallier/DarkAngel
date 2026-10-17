@@ -34,6 +34,7 @@ function startRename(c: ConversationSummary) {
   menu.value = null
 }
 function saveRename(id: string) {
+  if (renaming.value !== id) return // Enter/Esc already settled it; the blur that follows is a no-op
   const t = title.value.trim()
   renaming.value = null
   if (t) emit('rename', id, t)
@@ -45,7 +46,9 @@ function startDelete(id: string) {
 </script>
 
 <template>
-  <aside :class="['sidebar', { open }]" aria-label="Conversations">
+  <div v-if="open" class="backdrop" data-test="backdrop" @click="emit('close')" />
+  <aside :class="['sidebar', { open }]" aria-label="Conversations" @keydown.esc="emit('close')">
+    <button type="button" class="close" aria-label="Close conversations" @click="emit('close')">✕</button>
     <button type="button" class="new" @click="emit('new')">+ New chat</button>
     <label for="chat-search" class="sr-only">Search chats</label>
     <input id="chat-search" type="search" placeholder="Search chats…" @input="onSearch" />
@@ -58,7 +61,7 @@ function startDelete(id: string) {
             v-model="title"
             aria-label="Conversation title"
             @keydown.enter="saveRename(c.id)"
-            @keydown.esc="renaming = null"
+            @keydown.esc.stop="renaming = null"
             @blur="saveRename(c.id)"
           />
           <span v-else-if="confirming === c.id" class="confirm">
@@ -162,7 +165,25 @@ h3 {
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
+.close,
+.backdrop {
+  display: none;
+}
 @media (max-width: 767px) {
+  .close {
+    display: block;
+    align-self: flex-end;
+  }
+  .backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 9;
+    background: rgba(0, 0, 0, 0.4);
+  }
+  .sidebar:not(.open) {
+    visibility: hidden; /* off-screen buttons must leave the tab order */
+  }
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;

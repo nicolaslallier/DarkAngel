@@ -15,6 +15,7 @@ const isUser = computed(() => props.message.role === 'user')
 const html = computed(() => renderMarkdown(props.message.content))
 const thinkingOpen = computed(() => props.message.status === 'streaming' && !props.message.content)
 const noAnswer = computed(() => !isUser.value && props.message.status === 'complete' && !props.message.content)
+const stopped = computed(() => props.message.status === 'stopped' && !props.message.content)
 const failed = computed(() => props.message.status === 'error')
 
 const copy = (t: string) => navigator.clipboard?.writeText(t)
@@ -74,6 +75,7 @@ onUpdated(decorate)
       <!-- the only v-html in the app: renderMarkdown output is DOMPurify-sanitised -->
       <div ref="body" class="md" v-html="html" />
       <p v-if="noAnswer" class="note">No answer</p>
+      <p v-if="stopped" class="note">Stopped</p>
       <p v-if="failed" class="note error" role="alert">
         {{ message.error || 'Something went wrong.' }}
         <button type="button" @click="emit('regenerate')">Retry</button>

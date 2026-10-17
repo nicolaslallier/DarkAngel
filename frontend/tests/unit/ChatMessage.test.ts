@@ -62,3 +62,8 @@ it('adds a copy button to code blocks', () => {
   const w = render(msg({ content: '```js\nlet a = 1\n```' }))
   expect(w.find('pre button').exists()).toBe(true)
 })
+
+it('shows Stopped for a stopped reply with no content', () => {
+  const w = render(msg({ content: '', status: 'stopped' }))
+  expect(w.text()).toContain('Stopped')
+})

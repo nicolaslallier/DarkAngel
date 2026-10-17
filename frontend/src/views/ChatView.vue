@@ -37,7 +37,7 @@ watch(
   () => route.params.id,
   () => {
     // The replace after a first send lands on the conversation already open: do not abort its stream.
-    if (routeId() !== (store.current?.id ?? null)) void store.open(routeId())
+    if (store.loading || routeId() !== (store.current?.id ?? null)) void store.open(routeId())
   },
 )
 // A first message creates the conversation: reflect its id in the URL.
@@ -56,6 +56,11 @@ function go(id: string | null) {
   drawer.value = false
   void router.push(id ? { name: 'chat', params: { id } } : { name: 'chat' })
 }
+async function remove(id: string) {
+  const wasOpen = store.current?.id === id
+  await store.remove(id)
+  if (wasOpen && !store.current) void router.replace({ name: 'chat' })
+}
 const edit = (id: string, content: string) => store.send(content, id)
 </script>
 
@@ -69,7 +74,8 @@ const edit = (id: string, content: string) => store.send(content, id)
       @select="go"
       @search="store.loadConversations"
       @rename="store.rename"
-      @remove="store.remove"
+      @remove="remove"
+      @close="drawer = false"
     />
     <section class="conversation">
       <header>
