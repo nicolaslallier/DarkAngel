@@ -127,13 +127,14 @@ def _jpeg(source: str, *, data: bytes | None = None, at: float | None = None) ->
         "ffmpeg", "-v", "error", *seek, "-i", source, "-frames:v", "1",
         "-vf", "scale='min(1024,iw)':-2", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1",
     ]  # fmt: skip
-    done = subprocess.run(command, input=data, capture_output=True, timeout=120, check=True)
+    # An argv list, no shell: nothing in `source` is ever interpreted.
+    done = subprocess.run(command, input=data, capture_output=True, timeout=120, check=True)  # noqa: S603
     return done.stdout
 
 
 def _duration(url: str) -> float | None:
     command = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"]
-    done = subprocess.run([*command, url], capture_output=True, timeout=60, check=True)
+    done = subprocess.run([*command, url], capture_output=True, timeout=60, check=True)  # noqa: S603
     try:
         return float(done.stdout)
     except ValueError:
@@ -222,13 +223,14 @@ def ask_ollama(prompt: str, images: Sequence[bytes] = (), *, as_json: bool = Fal
         body["format"] = "json"
     if images:
         body["images"] = [base64.b64encode(image).decode() for image in images]
-    request = urllib.request.Request(
+    # The URL is an operator setting, never user input.
+    request = urllib.request.Request(  # noqa: S310
         f"{settings.ollama_url.rstrip('/')}/api/generate",
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"},
     )
     # A big model on a Mac takes its time; this only ever holds a background task.
-    with urllib.request.urlopen(request, timeout=600) as response:
+    with urllib.request.urlopen(request, timeout=600) as response:  # noqa: S310
         reply = json.load(response)["response"]
     answer = _THINKING.sub("", reply).strip()
     return answer if as_json else answer[:MAX_SUMMARY]

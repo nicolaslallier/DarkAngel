@@ -182,7 +182,8 @@ def test_collect_once_prunes_rows_older_than_thirty_days(monkeypatch):
 
     run_once(repo, [], FakeBucket(), monkeypatch, lambda inst: None)
 
-    assert repo.statuses == [] and repo.backups == []
+    assert repo.statuses == []
+    assert repo.backups == []
 
 
 BAD = PortainerInstance(name="BAD", url="http://[::1", api_key="sekret-key")

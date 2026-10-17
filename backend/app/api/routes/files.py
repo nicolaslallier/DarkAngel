@@ -337,7 +337,7 @@ def _validated_tags(raw: list[str]) -> list[str]:
 
 
 @router.patch("/{file_id}", response_model=FileInfo)
-def update_file(
+def update_file(  # noqa: C901 -- one branch per patchable field
     claims: Claims, repo: FileRepo, folders: FolderRepo, file_id: uuid.UUID, body: FilePatch
 ) -> FileInfo:
     """Rename, describe, retag and move in one call. Metadata only: no storage

@@ -84,7 +84,8 @@ def test_only_pdfs_are_accepted_and_nothing_is_stored_when_one_is_refused(home, 
     response = upload(("a.pdf", "b.txt"))
 
     assert response.status_code == 415
-    assert repo.rows == [] and store.objects == {}
+    assert repo.rows == []
+    assert store.objects == {}
 
 
 def test_a_preselected_service_is_kept(home, repo, store):

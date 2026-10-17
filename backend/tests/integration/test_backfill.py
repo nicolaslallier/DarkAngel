@@ -2,6 +2,8 @@
 
 import io
 
+import pytest
+
 from app.api.routes.files import s3_client
 from app.models.files import File, FileVersion
 from app.scripts.backfill import backfill
@@ -16,7 +18,8 @@ def test_a_legacy_object_gets_a_row_and_a_uuid_key(db, s3_bucket):
 
     moved, skipped = backfill(confirm=True)
 
-    assert len(moved) == 1 and skipped == []
+    assert len(moved) == 1
+    assert skipped == []
     old_key, new_key = moved[0]
     assert old_key == "user-1/bail été.txt"
 
@@ -66,7 +69,8 @@ def test_dry_run_writes_nothing(db, s3_bucket):
 
     moved, skipped = backfill(confirm=True, dry_run=True)
 
-    assert len(moved) == 1 and skipped == []
+    assert len(moved) == 1
+    assert skipped == []
     assert db.query(File).count() == 0
 
     after = {o.object_name for o in s3_client().list_objects(s3_bucket, recursive=True)}
@@ -76,12 +80,8 @@ def test_dry_run_writes_nothing(db, s3_bucket):
 def test_it_refuses_to_run_without_confirmation(db, s3_bucket):
     put(s3_bucket, "user-1/a.txt")
 
-    try:
+    with pytest.raises(RuntimeError, match=r"(?i)mirror"):
         backfill()
-    except RuntimeError as e:
-        assert "mirror" in str(e).lower()
-    else:
-        raise AssertionError("backfill() must refuse to rewrite live data unconfirmed")
 
 
 def test_each_owner_keeps_their_own_files(db, s3_bucket):
