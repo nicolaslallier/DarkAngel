@@ -50,6 +50,9 @@ def test_unconfigured_chat_is_503(chat_repo, monkeypatch):
     client = TestClient(app)
     assert client.get("/api/chat/models", headers=auth()).status_code == 503
     assert send(client).status_code == 503
+    cid = chat_repo.create("user-1", "c").id
+    assert client.get("/api/chat/conversations", headers=auth()).status_code == 503
+    assert client.post(f"/api/chat/conversations/{cid}/stop", headers=auth()).status_code == 503
 
 
 def test_send_to_new_creates_conversation_with_fallback_title_and_streams(chat):
@@ -300,3 +303,17 @@ def test_stream_response_disables_nginx_buffering(chat):
 
 def test_routes_require_a_token(chat):
     assert chat.client.get("/api/chat/conversations").status_code == 401
+
+
+def test_send_to_a_conversation_deleted_meanwhile_is_404(chat):
+    convo = seeded(chat, ("user", "one"), ("assistant", "A1"))
+    add_message = chat.repo.add_message
+
+    def deleted_first(sub, cid, **fields):
+        chat.repo.soft_delete(sub, cid)
+        return add_message(sub, cid, **fields)
+
+    chat.repo.add_message = deleted_first
+
+    assert send(chat.client, convo.id).status_code == 404
+    assert chat.runs._runs == {}  # the reservation was released

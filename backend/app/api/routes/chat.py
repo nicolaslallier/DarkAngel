@@ -17,7 +17,8 @@ from app.core.clock import Now
 from app.models.chat import Conversation, Message
 from app.repositories.chat import ChatRepo, ChatRepository
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+# Every chat route answers 503 while the LLM is not configured.
+router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(llm_client)])
 
 Llm = Annotated[LlmClient, Depends(llm_client)]
 RunRegistry = Annotated[Runs, Depends(chat_runs)]
@@ -220,8 +221,10 @@ async def _reply(
             context=context,
             title_from=title_from,
         )
-    except BaseException:
+    except BaseException as exc:
         runs.release(convo.id)
+        if isinstance(exc, LookupError):  # deleted since `_owned`
+            raise _not_found() from None
         raise
     # No await since start(): the subscriber cannot miss an event.
     events = runs.subscribe(sub, convo.id, snapshot=False)
