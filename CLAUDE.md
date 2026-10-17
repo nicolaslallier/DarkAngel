@@ -60,6 +60,7 @@ guide — read it before adding a test.
   them instead of `Claims`, and every repository query filters on `household_id`.
   `api/routes/household.py`, `providers.py`, `invoices.py`, `costs.py` and
   `invoice_extraction.py` (Ollama reads invoice PDFs; mirrors `summary.py`).
+- `api/routes/chat.py` + `chat/` + `repositories/chat.py` — LLM chat via LiteLLM (`DARKANGEL_LLM_URL`; empty = 503); replies run as asyncio tasks in the API process (one worker), see `docs/chat.md`.
 - `api/routes/metrics.py` + `metrics/` — fixed PromQL catalog proxied to Prometheus, plus DB-backed Portainer history; the SPA draws it with uPlot (`components/MetricsSection.vue`).
 
 **Frontend** (`frontend/src/`)
@@ -73,6 +74,7 @@ guide — read it before adding a test.
   `stores/{household,providers,invoices}.ts` and the
   `views/{Providers,Provider,Service,Review,Household,Join}View.vue` pages hold the
   service-providers feature.
+- `stores/chat.ts`, `views/ChatView.vue`, `api/chat.ts`, `markdown.ts` — the chat page; model text becomes HTML only via `markdown.ts` (DOMPurify allowlist).
 - `views/` + `router/index.ts` — routed pages; `@/` is aliased to `src/`.
 
 Requests use the relative `/api` base so the Vite proxy (`vite.config.ts`)
