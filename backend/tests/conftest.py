@@ -16,10 +16,12 @@ from app.api.routes import files
 from app.core import auth
 from app.core.clock import today
 from app.main import app
+from app.models.chat import Conversation, Message
 from app.models.files import File, Folder
 from app.models.households import Household, HouseholdMember
 from app.models.infra import BackupStatus, InfraStatus
 from app.models.providers import Invoice, InvoiceTax, Provider, Service
+from app.repositories.chat import chat_repository
 from app.repositories.files import NameTaken, QuotaExceeded, file_repository
 from app.repositories.folders import folder_repository
 from app.repositories.households import (
@@ -749,3 +751,118 @@ def infra():
     app.dependency_overrides[infra_repository] = lambda: fake
     yield fake
     app.dependency_overrides.pop(infra_repository, None)
+
+
+class FakeChatRepository:
+    """ChatRepository over lists, same signatures. Plain in-memory object: the
+    background reply runner uses it from an asyncio task, not a request."""
+
+    def __init__(self):
+        self.conversations: list[Conversation] = []
+        self.rows: list[Message] = []
+
+    def _owned(self, owner_sub, conversation_id):
+        return next(
+            (c for c in self.conversations if c.id == conversation_id and c.owner_sub == owner_sub),
+            None,
+        )
+
+    def list(self, owner_sub, q=None):
+        found = [c for c in self.conversations if c.owner_sub == owner_sub and not c.deleted_at]
+        if q:
+            needle = q.lower()
+            hits = {m.conversation_id for m in self.rows if needle in m.content.lower()}
+            found = [c for c in found if needle in c.title.lower() or c.id in hits]
+        return sorted(found, key=lambda c: c.updated_at, reverse=True)
+
+    def get(self, owner_sub, conversation_id):
+        row = self._owned(owner_sub, conversation_id)
+        return None if row is None or row.deleted_at else row
+
+    def create(self, owner_sub, title):
+        now = datetime.now(UTC)
+        row = Conversation(
+            id=uuid.uuid4(), owner_sub=owner_sub, title=title, created_at=now, updated_at=now
+        )
+        self.conversations.append(row)
+        return row
+
+    def rename(self, owner_sub, conversation_id, title):
+        row = self.get(owner_sub, conversation_id)
+        if row is not None:
+            row.title = title
+        return row
+
+    def soft_delete(self, owner_sub, conversation_id):
+        row = self.get(owner_sub, conversation_id)
+        if row is None:
+            return False
+        row.deleted_at = datetime.now(UTC)
+        return True
+
+    def messages(self, owner_sub, conversation_id):
+        if self._owned(owner_sub, conversation_id) is None:
+            return []
+        return [m for m in self.rows if m.conversation_id == conversation_id]
+
+    def add_message(
+        self, owner_sub, conversation_id, *, role, content, status="complete", model=None
+    ):
+        now = datetime.now(UTC)
+        row = Message(
+            id=uuid.uuid4(),
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            status=status,
+            model=model,
+            created_at=now,
+        )
+        self.rows.append(row)
+        convo = self._owned(owner_sub, conversation_id)
+        if convo is not None:
+            convo.updated_at = now
+        return row
+
+    def _message(self, owner_sub, message_id):
+        return next(
+            (
+                m
+                for m in self.rows
+                if m.id == message_id and self._owned(owner_sub, m.conversation_id)
+            ),
+            None,
+        )
+
+    def update_message(self, owner_sub, message_id, **fields):
+        row = self._message(owner_sub, message_id)
+        for field, value in fields.items():
+            if row is not None:
+                setattr(row, field, value)
+
+    def truncate_after(self, owner_sub, conversation_id, message_id):
+        mine = self.messages(owner_sub, conversation_id)
+        ids = [m.id for m in mine]
+        if message_id in ids:
+            drop = set(ids[ids.index(message_id) + 1 :])
+            self.rows = [m for m in self.rows if m.id not in drop]
+
+    def delete_message(self, owner_sub, message_id):
+        row = self._message(owner_sub, message_id)
+        if row is not None:
+            self.rows.remove(row)
+
+    def stop_streaming(self):
+        streaming = [m for m in self.rows if m.status == "streaming"]
+        for m in streaming:
+            m.status = "stopped"
+        return len(streaming)
+
+
+@pytest.fixture
+def chat_repo():
+    """Swap the chat repository for an in-memory fake. Explicit, never autouse."""
+    fake = FakeChatRepository()
+    app.dependency_overrides[chat_repository] = lambda: fake
+    yield fake
+    app.dependency_overrides.pop(chat_repository, None)

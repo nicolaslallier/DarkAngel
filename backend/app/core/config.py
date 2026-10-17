@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     ollama_url: str = ""
     ollama_model: str = "gemma4:26b-a4b-it-qat"
 
+    # Chat backend: an OpenAI-compatible server (`/v1/chat/completions`). Empty
+    # URL = chat disabled. `exo_url` is the Exo cluster, listed as extra models.
+    llm_url: str = ""
+    llm_api_key: SecretStr = SecretStr("")
+    exo_url: str = ""
+    llm_timeout_seconds: float = 300
+
     # The collector (python -m app.collector). It is the only process that gets
     # Portainer API keys -- Docker-root tokens -- so darkangel-api leaves
     # `portainer_instances` empty. A JSON list in the environment.
