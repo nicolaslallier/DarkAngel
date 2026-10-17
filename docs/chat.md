@@ -56,6 +56,9 @@ rendered as links, so no remote resource loads automatically.
 
 `deploy/portainer-stack.yml` sets the two URLs; `LLM_API_KEY` is a Portainer
 stack variable, set in `.portainer.env` and handed over by `make up` (rerun it
-after a change). Owner prerequisites: add the Exo-loaded model(s) to LiteLLM's
+after a change). The CI deploy (`.github/workflows/deploy.yml`) rewrites the
+stack's whole Env list, so it needs the same value as the `LLM_API_KEY`
+repository secret. Owner prerequisites: add the Exo-loaded model(s) to LiteLLM's
 `model_list`, and rotate the LiteLLM master key (it was exposed during design),
-then update `LLM_API_KEY` and `make up`.
+then update `LLM_API_KEY` (in `.portainer.env` and the repository secret) and
+redeploy.

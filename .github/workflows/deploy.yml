@@ -107,6 +107,9 @@ jobs:
           # Env list is rewritten on every deploy.
           PORTAINER_INSTANCES: ${{ secrets.PORTAINER_INSTANCES }}
           BACKUP_S3_SECRET_KEY: ${{ secrets.BACKUP_S3_SECRET_KEY }}
+          # The LiteLLM key the chat calls with, same reason: left out, every
+          # chat request is refused by LiteLLM after a deploy.
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           # Optional overrides, all repository variables.
           PORTAINER_URL: ${{ vars.PORTAINER_URL }}
           PORTAINER_INSECURE: ${{ vars.PORTAINER_INSECURE }}
