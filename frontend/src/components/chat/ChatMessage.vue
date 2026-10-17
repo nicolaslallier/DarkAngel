@@ -78,7 +78,7 @@ onUpdated(decorate)
       <p v-if="stopped" class="note">Stopped</p>
       <p v-if="failed" class="note error" role="alert">
         {{ message.error || 'Something went wrong.' }}
-        <button type="button" @click="emit('regenerate')">Retry</button>
+        <button v-if="last" type="button" :disabled="streaming" @click="emit('regenerate')">Retry</button>
       </p>
       <div v-if="message.status !== 'streaming'" class="actions">
         <button type="button" @click="copy(message.content)">Copy</button>

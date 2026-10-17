@@ -3,6 +3,7 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
@@ -72,20 +73,19 @@ def test_send_to_new_creates_conversation_with_fallback_title_and_streams(chat):
     assert (assistant.content, assistant.status, assistant.model) == ("Hello", "complete", "m")
 
 
-def test_send_stream_has_start_deltas_title_done_in_order(chat):
+def test_send_stream_has_start_deltas_done_in_order_then_title(chat):
     chat.llm.events = [("reasoning", "Hmm"), ("content", "Hel"), ("content", "lo")]
     events = sse_events(send(chat.client).text)
 
-    assert [e for e, _ in events] == ["start", "reasoning", "content", "content", "title", "done"]
-    assert events[4][1] == {"title": "Smart title"}
-    message = events[5][1]["message"]
+    assert [e for e, _ in events] == ["start", "reasoning", "content", "content", "done"]
+    message = events[4][1]["message"]
     assert set(message) == set(events[0][1]["user_message"])
     assert (message["content"], message["reasoning"], message["status"]) == (
         "Hello",
         "Hmm",
         "complete",
     )
-    assert chat.repo.conversations[0].title == "Smart title"
+    wait_until(lambda: chat.repo.conversations[0].title == "Smart title")  # detached, after done
     model, context = chat.llm.streams[0]
     assert model == "m" and context[0]["role"] == "system"
     assert context[1:] == [{"role": "user", "content": "Hi there"}]
@@ -324,3 +324,19 @@ def test_unauthenticated_is_401_even_when_unconfigured(chat_repo, monkeypatch):
     client = TestClient(app)
     assert client.get("/api/chat/conversations").status_code == 401
     assert client.get("/api/chat/models").status_code == 401
+
+
+def test_model_lookup_failure_writes_no_rows_and_releases(chat):
+    convo = seeded(chat)
+    real = chat.llm.models
+
+    async def broken():
+        raise RuntimeError("boom")
+
+    chat.llm.models = broken
+    with pytest.raises(RuntimeError):
+        send(chat.client, convo.id)
+    assert chat.repo.rows == []  # nothing stranded
+
+    chat.llm.models = real
+    assert send(chat.client, convo.id).status_code == 200  # reservation was released

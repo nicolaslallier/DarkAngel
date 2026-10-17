@@ -4,6 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import * as api from '@/api/chat'
+import { useChatStore } from '@/stores/chat'
 import ChatView from '@/views/ChatView.vue'
 
 vi.mock('@/api/chat', () => ({
@@ -81,4 +82,40 @@ it('opens A again when navigating back while B is still loading', async () => {
   release(conv('b'))
   await flushPromises()
   expect(api.getConversation).toHaveBeenLastCalledWith('abc')
+})
+
+it('scrolls the message list to the bottom when a conversation opens', async () => {
+  const spy = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(900)
+  vi.mocked(api.getConversation).mockResolvedValueOnce({
+    id: 'abc',
+    title: 'T',
+    streaming: false,
+    messages: [{ id: 'u1', role: 'user', content: 'hi', reasoning: null, model: 'm', status: 'complete', error: null, created_at: 'x' }],
+  })
+  const { wrapper } = await render('/chat/abc')
+  expect((wrapper.find('.messages').element as HTMLElement).scrollTop).toBe(900)
+  spy.mockRestore()
+})
+
+it('follows streaming output only while the user stays near the bottom', async () => {
+  const spy = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(900)
+  const msg = { id: 'a1', role: 'assistant', content: 'a', reasoning: null, model: 'm', status: 'streaming', error: null, created_at: 'x' } as const
+  vi.mocked(api.getConversation).mockResolvedValueOnce({ id: 'abc', title: 'T', streaming: false, messages: [{ ...msg }] })
+  const { wrapper } = await render('/chat/abc')
+  const el = wrapper.find('.messages').element as HTMLElement
+  const store = useChatStore()
+
+  el.scrollTop = 100 // the user scrolled up
+  await wrapper.find('.messages').trigger('scroll')
+  store.current!.messages[0].content += 'b'
+  await flushPromises()
+  expect(el.scrollTop).toBe(100) // not yanked
+
+  el.scrollTop = 900 // back at the bottom
+  await wrapper.find('.messages').trigger('scroll')
+  spy.mockReturnValue(1200)
+  store.current!.messages[0].content += 'c'
+  await flushPromises()
+  expect(el.scrollTop).toBe(1200)
+  spy.mockRestore()
 })

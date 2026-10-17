@@ -46,7 +46,6 @@ export type StreamEvent =
   | { event: 'progress'; data: { processed: number; total: number } }
   | { event: 'reasoning'; data: { text: string } }
   | { event: 'content'; data: { text: string } }
-  | { event: 'title'; data: { title: string } }
   | { event: 'error'; data: { message: string } }
   | { event: 'done'; data: { message: ChatMessage } }
 

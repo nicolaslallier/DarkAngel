@@ -101,7 +101,8 @@ class LlmClient:
 
     @property
     def _auth(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.api_key}"}
+        # An empty key would send "Bearer " with nothing after it, which httpx rejects.
+        return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
 
     async def models(self) -> list[ModelInfo]:
         if self._cache and time.monotonic() - self._cache[0] < _CACHE_SECONDS:
@@ -118,7 +119,7 @@ class LlmClient:
         except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError) as exc:
             log.warning("llm model listing failed: %s", type(exc).__name__)
             raise LlmError("The model did not answer") from None
-        exo_port = urlparse(self.exo_url).port
+        exo_port = _port(self.exo_url)
         result = []
         for model_id, max_input in context.items():
             p = params.get(model_id, {})
@@ -126,7 +127,7 @@ class LlmClient:
             is_exo = (
                 loaded is not None
                 and exo_port is not None
-                and urlparse(p.get("api_base", "")).port == exo_port
+                and _port(p.get("api_base", "")) == exo_port
             )
             result.append(
                 ModelInfo(
@@ -153,7 +154,14 @@ class LlmClient:
                 for shard in instance.values()
             }
             return loaded, {m["id"]: m["context_length"] for m in models.json()["data"]}
-        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        except (
+            httpx.HTTPError,
+            httpx.InvalidURL,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+        ) as exc:
             log.warning("exo status failed: %s", type(exc).__name__)
             return None, {}
 
@@ -195,15 +203,21 @@ class LlmClient:
                     raise self._fail(model, response.status_code, body)
                 async for line in response.aiter_lines():
                     if line.startswith(": prefill_progress"):
-                        chunk = json.loads(line.removeprefix(": prefill_progress"))
-                        p = chunk["PrefillProgressChunk"]
-                        yield ("progress", p["processed_tokens"], p["total_tokens"])
+                        try:
+                            chunk = json.loads(line.removeprefix(": prefill_progress"))
+                            p = chunk["PrefillProgressChunk"]
+                            progress = ("progress", p["processed_tokens"], p["total_tokens"])
+                        except (ValueError, KeyError, TypeError):
+                            continue  # a progress hint only: never worth losing the reply
+                        yield progress
                     if not line.startswith("data:"):
                         continue
                     data = line.removeprefix("data:").strip()
                     if data == "[DONE]":
                         break
                     chunk = json.loads(data)
+                    if "error" in chunk:
+                        raise self._fail(model, response.status_code, data)
                     for choice in chunk.get("choices") or []:
                         delta = choice.get("delta") or {}
                         if delta.get("reasoning_content"):
@@ -241,6 +255,13 @@ class LlmClient:
             log.warning("llm completion failed: %s", type(exc).__name__)
             raise LlmError("The model did not answer") from None
         return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+
+def _port(url: str) -> int | None:
+    try:
+        return urlparse(url).port
+    except ValueError:
+        return None
 
 
 @lru_cache

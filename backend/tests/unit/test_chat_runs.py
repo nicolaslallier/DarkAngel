@@ -207,17 +207,24 @@ def test_partial_text_is_flushed_while_streaming():
     asyncio.run(body())
 
 
-def test_first_reply_gets_model_title_before_done():
+async def settle(runs):
+    """Waits for the detached title tasks."""
+    await asyncio.gather(*runs._titles)
+
+
+def test_first_reply_gets_model_title_after_done():
     async def body():
         runs, repo, convo, msg = setup()
         llm = FakeLlm([("content", "Sure")], title='"Lisbon trip plan"\nmore text')
         events = await drain(start(runs, convo, msg, llm, title_from="Plan a trip to Lisbon"))
 
-        assert events[-2:][0] == ("title", {"title": "Lisbon trip plan"})
-        assert events[-1][0] == "done"
+        assert [kind for kind, _ in events] == ["content", "done"]
+        assert runs._runs == {}  # registry empty right after done
+        await settle(runs)
         assert convo.title == "Lisbon trip plan"
         ((model, prompt),) = llm.completions
         assert model == "m" and "Plan a trip to Lisbon" in prompt[-1]["content"]
+        assert runs._titles == set()
 
     asyncio.run(body())
 
@@ -227,6 +234,7 @@ def test_title_failure_keeps_fallback():
         runs, repo, convo, msg = setup()
         llm = FakeLlm([("content", "Sure")], title=LlmError("The model did not answer"))
         events = await drain(start(runs, convo, msg, llm, title_from="Plan a trip"))
+        await settle(runs)
 
         assert [kind for kind, _ in events] == ["content", "done"]
         assert events[-1][1]["message"]["status"] == "complete"
@@ -235,20 +243,33 @@ def test_title_failure_keeps_fallback():
     asyncio.run(body())
 
 
-def test_stop_during_title_publishes_done_promptly():
+def test_hanging_title_does_not_delay_done_and_times_out():
+    async def body():
+        runs, repo, convo, msg = setup(title_timeout=0.05)
+        llm = FakeLlm([("content", "Sure")], title=WAIT)  # complete() never returns
+        events = await drain(start(runs, convo, msg, llm, title_from="Plan a trip"))
+
+        assert events[-1][1]["message"]["status"] == "complete"
+        assert runs.running("alice") == set()
+        assert len(runs._titles) == 1  # still pending
+        await settle(runs)  # the timeout ends it silently
+        assert (msg.status, convo.title) == ("complete", "New chat")
+
+    asyncio.run(body())
+
+
+def test_stop_after_done_does_not_affect_the_title():
     async def body():
         runs, repo, convo, msg = setup()
-        llm = FakeLlm([("content", "Sure")], title=WAIT)  # complete() never returns
-        events = start(runs, convo, msg, llm, title_from="Plan a trip")
+        llm = FakeLlm([("content", "Sure")], title=WAIT)
+        await drain(start(runs, convo, msg, llm, title_from="Plan a trip"))
         await llm.waiting.wait()
 
-        assert runs.stop("alice", convo.id) is True
-        rest = await drain(events)
-
-        assert [kind for kind, _ in rest] == ["content", "done"]
-        assert rest[-1][1]["message"]["status"] == "complete"
-        assert (msg.status, convo.title) == ("complete", "New chat")
-        assert runs.running("alice") == set()
+        assert runs.stop("alice", convo.id) is False  # the run is gone
+        llm.title = "Trip"
+        llm.gate.set()
+        await settle(runs)
+        assert convo.title == "Trip"
 
     asyncio.run(body())
 

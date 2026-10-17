@@ -86,13 +86,17 @@ it('done replaces the message and refreshes the list', async () => {
   expect(s.streaming).toBe(false)
 })
 
-it('title event renames current and list entry', async () => {
+it('start refreshes the list so a new chat shows in the sidebar during the reply', async () => {
+  let seen = 0
+  vi.mocked(api.sendMessage).mockReturnValue(
+    (async function* () {
+      yield start() as never
+      seen = vi.mocked(api.listConversations).mock.calls.length
+    })(),
+  )
   const s = useChatStore()
-  s.conversations = [{ id: 'c1', title: 'New', updated_at: 'x', streaming: true }]
-  vi.mocked(api.sendMessage).mockReturnValue(script([start(), { event: 'title', data: { title: 'Nice' } }]))
   await s.send('hi')
-  expect(s.current?.title).toBe('Nice')
-  expect(s.conversations[0].title).toBe('Nice')
+  expect(seen).toBe(1)
 })
 
 it('open aborts the previous stream without calling stop', async () => {
@@ -212,13 +216,20 @@ it('edit passes replace_from and drops later messages locally', async () => {
   expect(seen).toBe(2)
 })
 
-it('error event sets error and ends streaming', async () => {
+it('error event marks the message, not the global error, and ends streaming', async () => {
+  let mid: { status: string; error: string | null } | undefined
   vi.mocked(api.sendMessage).mockReturnValue(
-    script([start(), { event: 'error', data: { message: 'boom' } }, { event: 'done', data: { message: msg('a1', 'assistant', '', 'error') } }]),
+    (async function* () {
+      yield start() as never
+      yield { event: 'error', data: { message: 'boom' } } as never
+      const m = useChatStore().current?.messages[1]
+      mid = m && { status: m.status, error: m.error }
+    })(),
   )
   const s = useChatStore()
   await s.send('hi')
-  expect(s.error).toBe('boom')
+  expect(mid).toEqual({ status: 'error', error: 'boom' })
+  expect(s.error).toBeNull()
   expect(s.streaming).toBe(false)
 })
 

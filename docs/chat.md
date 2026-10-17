@@ -29,7 +29,11 @@ A model Exo has loaded is only usable if it is also in LiteLLM's
 the API process (`chat/runs.py`) and streams it back as server-sent events.
 The task, not the HTTP connection, owns the reply: closing the tab or
 navigating away never cancels it; only `POST .../stop` does. The task saves
-the assistant message as it finishes (or as `stopped` / error).
+the assistant message as it finishes (or as `stopped` / error), then sends
+`done` and leaves the registry. Only after that, on a conversation's first
+reply, a detached task asks the same model for a short title (best effort, up
+to 120 s; titles take ~70 s on this cluster) and saves it as a rename; the
+sidebar shows it on its next refresh. Stop has no effect on it.
 
 Reattach: when the SPA reopens a conversation that is still running it calls
 `GET .../stream`, which replays what has been generated so far and then

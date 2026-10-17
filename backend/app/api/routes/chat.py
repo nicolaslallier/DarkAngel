@@ -204,6 +204,11 @@ async def _reply(
     except Busy:
         raise HTTPException(status.HTTP_409_CONFLICT, "A reply is already running") from None
     try:
+        # Before any row is written, so a failure here strands nothing.
+        try:
+            listed = {m.id: m.context_length for m in await llm.models()}
+        except LlmError:
+            listed = {}  # the run itself will report the model being unreachable
         history = await run_in_threadpool(repo.messages, sub, convo.id)
         user_message, title_from = await run_in_threadpool(prepare, list(history))
         history = await run_in_threadpool(repo.messages, sub, convo.id)
@@ -217,10 +222,6 @@ async def _reply(
             status="streaming",
             model=model,
         )
-        try:
-            listed = {m.id: m.context_length for m in await llm.models()}
-        except LlmError:
-            listed = {}  # the run itself will report the model being unreachable
         context = build_context(history, listed.get(model, _DEFAULT_CONTEXT), now)
         runs.start(
             owner_sub=sub,

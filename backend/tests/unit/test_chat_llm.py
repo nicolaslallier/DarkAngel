@@ -219,3 +219,38 @@ def test_error_body_is_never_logged(caplog):
 def test_non_object_chunk_becomes_generic_error():
     with pytest.raises(LlmError, match="The model did not answer"):
         collect(client(lambda r: sse("data: []")))
+
+
+def test_empty_api_key_sends_no_authorization_header():
+    seen = []
+    c = LlmClient(LLM, "", EXO, 5, transport=httpx.MockTransport(router(seen)))
+    run(c.models())
+
+    def handler(request):
+        seen.append(request)
+        return sse("data: [DONE]")
+
+    c.transport = httpx.MockTransport(handler)
+    collect(c)
+    assert seen and all("authorization" not in r.headers for r in seen)
+
+
+def test_malformed_prefill_progress_line_is_skipped():
+    resp = sse(": prefill_progress {broken", ": prefill_progress []", chunk(content="Hi"))
+    assert collect(client(lambda r: resp)) == [("content", "Hi")]
+
+
+def test_in_stream_error_chunk_is_an_upstream_failure(caplog):
+    secret = {"error": {"type": "x", "code": "500", "message": "SECRET-PROMPT"}}
+    with caplog.at_level("WARNING"), pytest.raises(LlmError, match="The model did not answer"):
+        collect(client(lambda r: sse(chunk(content="par"), "data: " + json.dumps(secret))))
+    assert "SECRET-PROMPT" not in caplog.text
+
+    gone = {"error": f"No instance found for model {GLM}"}
+    with pytest.raises(LlmError, match="is not loaded on the cluster"):
+        collect(client(lambda r: sse("data: " + json.dumps(gone))))
+
+
+def test_malformed_exo_url_yields_unknown_loaded_state():
+    models = run(client(router(), exo="http://exo:notaport").models())
+    assert [m.loaded for m in models] == [None, None, None]

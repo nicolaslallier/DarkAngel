@@ -69,6 +69,7 @@ By the designer (my calls, open to veto):
   it is saved and sent as a `title` event before `done`. Best effort: on failure or
   after 60 s the fallback title stays. It runs inside the reply's run, so nothing
   needs polling.
+- Deviation (built): title generated after `done`, detached, no `title` event — titles take ~70 s on this cluster.
 - **Search** box in the sidebar over titles and message text.
 - Sidebar grouped by **Today / Yesterday / Previous 7 days / Previous 30 days / month**.
 - **Edit** a user message = replace its text, delete every later message, re-run the

@@ -96,6 +96,7 @@ export const useChatStore = defineStore('chat', () => {
           error: null,
           created_at: new Date().toISOString(),
         })
+        void loadConversations() // a new chat shows in the sidebar for the whole reply
         break
       }
       case 'snapshot': {
@@ -119,18 +120,16 @@ export const useChatStore = defineStore('chat', () => {
         if (m) m.content += ev.data.text
         break
       }
-      case 'title': {
-        if (current.value) {
-          current.value.title = ev.data.title
-          const entry = conversations.value.find((c) => c.id === current.value?.id)
-          if (entry) entry.title = ev.data.title
+      case 'error': {
+        // The message shows its own error note; the global alert is for failed requests.
+        const m = assistant()
+        if (m) {
+          m.status = 'error'
+          m.error = ev.data.message
         }
-        break
-      }
-      case 'error':
-        error.value = ev.data.message
         streaming.value = false
         break
+      }
       case 'done': {
         const msgs = current.value?.messages
         if (msgs) {

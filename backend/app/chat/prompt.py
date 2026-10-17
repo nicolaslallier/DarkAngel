@@ -6,6 +6,8 @@ from app.models.chat import Message
 
 # ponytail: rough chars-per-token estimate, use a real tokenizer if it misjudges
 CHARS_PER_TOKEN = 4
+# Leave a quarter of the window for the answer, reasoning included.
+CONTEXT_SHARE = 0.75
 
 
 def system_prompt(now: datetime) -> str:
@@ -25,7 +27,7 @@ def build_context(history: Sequence[Message], context_length: int, now: datetime
         for m in history
         if m.status != "error" and (m.role != "assistant" or m.content)
     ]
-    budget = context_length * CHARS_PER_TOKEN
+    budget = int(context_length * CONTEXT_SHARE) * CHARS_PER_TOKEN
     total = len(system) + sum(len(m["content"]) for m in msgs)
     while len(msgs) > 1 and total > budget:
         total -= len(msgs.pop(0)["content"])

@@ -31,11 +31,12 @@ def test_context_skips_errors_and_never_sends_reasoning():
 
 
 def test_context_drops_oldest_first_and_keeps_newest():
+    # 100 tokens -> a 75-token budget (room left for the answer) -> 300 chars
     sys_len = len(system_prompt(NOW))
-    assert sys_len < 200
-    pad = 200 - sys_len
+    assert sys_len < 280
+    pad = 300 - sys_len
     history = [_msg("user", "a" * pad), _msg("assistant", "b" * 10), _msg("user", "c" * 5)]
-    ctx = build_context(history, 50, NOW)
+    ctx = build_context(history, 100, NOW)
     assert [m["content"][0] for m in ctx[1:]] == ["b", "c"]
     # newest survives even when it alone busts the budget
     ctx = build_context([_msg("user", "z" * 1000)], 50, NOW)

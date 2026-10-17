@@ -44,6 +44,15 @@ it('shows Retry on error and emits regenerate', async () => {
   expect(w.emitted('regenerate')).toHaveLength(1)
 })
 
+it('keeps the error on an older failed message but offers Retry only on the last, idle', () => {
+  const retry = (w: ReturnType<typeof render>) => w.findAll('button').find((b) => b.text() === 'Retry')
+  const failed = msg({ content: '', status: 'error', error: 'boom' })
+  const older = render(failed, false)
+  expect(older.text()).toContain('boom')
+  expect(retry(older)).toBeUndefined()
+  expect(retry(render(failed, true, true))!.attributes('disabled')).toBeDefined()
+})
+
 it('offers Edit on user messages and emits the new content', async () => {
   const w = render(msg({ role: 'user', content: 'hi' }), false)
   await w.findAll('button').find((b) => b.text() === 'Edit')!.trigger('click')

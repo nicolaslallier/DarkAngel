@@ -48,8 +48,8 @@ class _Run:
     content: str = ""
     reasoning: str = ""
     stopped: bool = False
-    # Only the stream and the title are cancelled: a cancel before the task's first
-    # step would skip every handler, and one during the final save would lose it.
+    # Only the stream is cancelled: a cancel before the task's first step would skip
+    # every handler, and one during the final save would lose it.
     cancellable: bool = False
 
     def publish(self, event: str, data: dict) -> None:
@@ -62,12 +62,14 @@ class Runs:
     Single event loop, so the sync methods are atomic."""
 
     def __init__(
-        self, store: Store = default_store, flush_seconds: float = 2.0, title_timeout: float = 60.0
+        self, store: Store = default_store, flush_seconds: float = 2.0, title_timeout: float = 120.0
     ) -> None:
         self.store = store
         self.flush_seconds = flush_seconds
         self.title_timeout = title_timeout
         self._runs: dict[uuid.UUID, _Run | None] = {}
+        # Strong references: the loop keeps only weak ones to tasks.
+        self._titles: set[asyncio.Task] = set()
 
     def reserve(self, conversation_id: uuid.UUID) -> None:
         if conversation_id in self._runs:
@@ -199,21 +201,16 @@ class Runs:
         except Exception:
             # The row stays `streaming` until the startup sweep marks it `stopped`.
             log.exception("chat run final save failed")
-        try:
-            if status == "complete" and title_from and not run.stopped:
-                run.cancellable = True
-                try:
-                    await self._title(run, conversation_id, llm, model, title_from)
-                except asyncio.CancelledError:
-                    # stop() during the title: keep the fallback. A rename already in
-                    # its thread may still land, unpublished; the next list shows it.
-                    asyncio.current_task().uncancel()
-                finally:
-                    run.cancellable = False
         finally:
             # No await between these two: a subscriber either gets `done` or finds no run.
             run.publish("done", {"message": message})
             del self._runs[conversation_id]
+        if status == "complete" and title_from and not run.stopped:
+            # Detached: a title takes ~70 s on the cluster, so it must not hold `done`.
+            # The next conversation list shows it.
+            task = asyncio.create_task(self._title(owner, conversation_id, llm, model, title_from))
+            self._titles.add(task)
+            task.add_done_callback(self._titles.discard)
 
     async def _stream(
         self, run: _Run, message_id: uuid.UUID, llm: LlmClient, model: str, context: list[dict]
@@ -247,7 +244,7 @@ class Runs:
         return usage
 
     async def _title(
-        self, run: _Run, conversation_id: uuid.UUID, llm: LlmClient, model: str, text: str
+        self, owner_sub: str, conversation_id: uuid.UUID, llm: LlmClient, model: str, text: str
     ) -> None:
         prompt = [{"role": "user", "content": _TITLE_PROMPT.format(text=text)}]
         try:
@@ -257,11 +254,9 @@ class Runs:
             title = lines[0].strip().strip("\"'").strip()[:80] if lines else ""
             if not title:
                 return
-            await self._db("rename", run.owner_sub, conversation_id, title)
+            await self._db("rename", owner_sub, conversation_id, title)
         except Exception as exc:
             log.warning("chat title failed: %s", type(exc).__name__)
-            return
-        run.publish("title", {"title": title})
 
 
 runs = Runs()

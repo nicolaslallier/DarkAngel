@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import ChatComposer from '@/components/chat/ChatComposer.vue'
@@ -47,6 +47,34 @@ watch(
     if (id && id !== routeId()) void router.replace({ name: 'chat', params: { id } })
   },
 )
+// Follow the bottom on open, on send, and while streaming unless the user scrolled up.
+const list = ref<HTMLElement | null>(null)
+let pinned = true
+function onScroll() {
+  const el = list.value
+  if (el) pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+}
+async function toBottom() {
+  pinned = true
+  await nextTick()
+  if (list.value) list.value.scrollTop = list.value.scrollHeight
+}
+watch(() => store.current?.id, toBottom, { flush: 'post' })
+watch(
+  () => {
+    const last = messages.value.at(-1)
+    return `${messages.value.length}:${last?.content.length}:${last?.reasoning?.length}`
+  },
+  () => {
+    if (pinned) void toBottom()
+  },
+  { flush: 'post' },
+)
+function send(content: string) {
+  void toBottom()
+  void store.send(content)
+}
+
 onBeforeUnmount(() => {
   clearInterval(tick)
   store.leave()
@@ -83,7 +111,7 @@ const edit = (id: string, content: string) => store.send(content, id)
         <b>{{ store.current?.title ?? 'New chat' }}</b>
       </header>
       <p v-if="store.loading" role="status">Loading…</p>
-      <div class="messages">
+      <div ref="list" class="messages" @scroll.passive="onScroll">
         <ChatMessage
           v-for="(m, i) in messages"
           :key="m.id"
@@ -106,7 +134,7 @@ const edit = (id: string, content: string) => store.send(content, id)
         :streaming="store.streaming"
         :models="store.models"
         :model="store.model"
-        @send="store.send($event)"
+        @send="send"
         @stop="store.stop()"
         @select="store.selectModel"
       />
@@ -117,11 +145,12 @@ const edit = (id: string, content: string) => store.send(content, id)
 <style scoped>
 .chat {
   display: flex;
-  min-height: calc(100vh - 6rem);
+  height: calc(100vh - 6rem);
 }
 .conversation {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -134,6 +163,8 @@ header {
 }
 .messages {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1rem;
