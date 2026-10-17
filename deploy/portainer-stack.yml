@@ -58,6 +58,12 @@ services:
       # server (Mac asleep, IP changed) only leaves them blank.
       DARKANGEL_OLLAMA_URL: http://192.168.2.35:11434
       DARKANGEL_OLLAMA_MODEL: gemma4:26b-a4b-it-qat
+      # Chat (docs/chat.md): LiteLLM and the Exo cluster on the Mac. Empty
+      # LLM_URL turns chat off (503). LLM_API_KEY is a stack variable `make up`
+      # copies from .portainer.env, the same way S3_SECRET_KEY arrives.
+      DARKANGEL_LLM_URL: http://192.168.2.35:4000
+      DARKANGEL_EXO_URL: http://192.168.2.35:52415
+      DARKANGEL_LLM_API_KEY: ${LLM_API_KEY:-}
     expose:
       - "8000"
     # Named for infra-net, which every app on this host shares: a plain

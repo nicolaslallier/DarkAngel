@@ -59,14 +59,15 @@ note() { printf 'portainer-stack.sh: %b\n' "$*"; }
 # not survive the next `make up` -- the S3 and Postgres secrets, and the
 # collector's two values (the Portainer instances JSON and the backup bucket's
 # read-only secret), have to come through here.
-stack_env() { # <image-owner> <image-tag> <s3-secret-key> <postgres-password> <portainer-instances> <backup-s3-secret-key>
-  jq -n --arg owner "$1" --arg tag "$2" --arg s3 "$3" --arg pg "$4" --arg inst "$5" --arg bk "$6" \
+stack_env() { # <image-owner> <image-tag> <s3-secret-key> <postgres-password> <portainer-instances> <backup-s3-secret-key> <llm-api-key>
+  jq -n --arg owner "$1" --arg tag "$2" --arg s3 "$3" --arg pg "$4" --arg inst "$5" --arg bk "$6" --arg llm "$7" \
     '[{name: "IMAGE_OWNER", value: $owner},
       {name: "IMAGE_TAG", value: $tag},
       {name: "S3_SECRET_KEY", value: $s3},
       {name: "POSTGRES_PASSWORD", value: $pg},
       {name: "PORTAINER_INSTANCES", value: $inst},
-      {name: "BACKUP_S3_SECRET_KEY", value: $bk}]'
+      {name: "BACKUP_S3_SECRET_KEY", value: $bk},
+      {name: "LLM_API_KEY", value: $llm}]'
 }
 
 gen_uuid() {
@@ -83,10 +84,10 @@ gen_uuid() {
 
 selftest() {
   local got want
-  got="$(stack_env nicolaslallier latest s3cret pgpass '[{"name":"HEAVEN"}]' bkey | jq -c .)"
-  want='[{"name":"IMAGE_OWNER","value":"nicolaslallier"},{"name":"IMAGE_TAG","value":"latest"},{"name":"S3_SECRET_KEY","value":"s3cret"},{"name":"POSTGRES_PASSWORD","value":"pgpass"},{"name":"PORTAINER_INSTANCES","value":"[{\"name\":\"HEAVEN\"}]"},{"name":"BACKUP_S3_SECRET_KEY","value":"bkey"}]'
+  got="$(stack_env nicolaslallier latest s3cret pgpass '[{"name":"HEAVEN"}]' bkey llmkey | jq -c .)"
+  want='[{"name":"IMAGE_OWNER","value":"nicolaslallier"},{"name":"IMAGE_TAG","value":"latest"},{"name":"S3_SECRET_KEY","value":"s3cret"},{"name":"POSTGRES_PASSWORD","value":"pgpass"},{"name":"PORTAINER_INSTANCES","value":"[{\"name\":\"HEAVEN\"}]"},{"name":"BACKUP_S3_SECRET_KEY","value":"bkey"},{"name":"LLM_API_KEY","value":"llmkey"}]'
   [ "$got" = "$want" ] || die "selftest: stack_env\n  got:  $got\n  want: $want"
-  got="$(stack_env 'o w' 'sha-1234' '' '' '' '' | jq -r '.[1].value')"
+  got="$(stack_env 'o w' 'sha-1234' '' '' '' '' '' | jq -r '.[1].value')"
   [ "$got" = sha-1234 ] || die "selftest: stack_env did not carry the tag through"
   case "$(gen_uuid)" in
     [0-9a-f]*-*-*-*-*) ;;
@@ -207,9 +208,11 @@ case "$cmd" in
       note "POSTGRES_PASSWORD is not set in .portainer.env: the backend cannot start (see 'make postgres')"
     [ -n "${BACKUP_S3_SECRET_KEY:-}" ] && [ "$BACKUP_S3_SECRET_KEY" != change-me ] ||
       note "BACKUP_S3_SECRET_KEY is not set in .portainer.env: the dashboard's Backups card will show 'No backup' for every instance (see docs/dashboard.md)"
+    [ -n "${LLM_API_KEY:-}" ] && [ "$LLM_API_KEY" != change-me ] ||
+      note "LLM_API_KEY is not set in .portainer.env: chat requests will be rejected by LiteLLM (see docs/chat.md)"
     [ -n "${PORTAINER_INSTANCES:-}" ] ||
       note "PORTAINER_INSTANCES is not set in .portainer.env: the dashboard's Backups and Infra cards stay empty (see docs/dashboard.md)"
-    env="$(stack_env "$IMAGE_OWNER" "$IMAGE_TAG" "${S3_SECRET_KEY:-}" "${POSTGRES_PASSWORD:-}" "${PORTAINER_INSTANCES:-[]}" "${BACKUP_S3_SECRET_KEY:-}")"
+    env="$(stack_env "$IMAGE_OWNER" "$IMAGE_TAG" "${S3_SECRET_KEY:-}" "${POSTGRES_PASSWORD:-}" "${PORTAINER_INSTANCES:-[]}" "${BACKUP_S3_SECRET_KEY:-}" "${LLM_API_KEY:-}")"
     if [ -z "$sid" ]; then
       [ "$cmd" = up ] || die "stack '$STACK' does not exist yet -- 'make up' first"
       hook="$(gen_uuid)"
