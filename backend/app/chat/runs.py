@@ -48,9 +48,9 @@ class _Run:
     content: str = ""
     reasoning: str = ""
     stopped: bool = False
-    # Only the stream is cancelled: a cancel before the task's first step would skip
-    # every handler, and one during the final save would lose it.
-    streaming: bool = False
+    # Only the stream and the title are cancelled: a cancel before the task's first
+    # step would skip every handler, and one during the final save would lose it.
+    cancellable: bool = False
 
     def publish(self, event: str, data: dict) -> None:
         for queue in self.queues:
@@ -133,7 +133,7 @@ class Runs:
             return False
         if not run.stopped:
             run.stopped = True
-            if run.streaming and run.task:
+            if run.cancellable and run.task:
                 run.task.cancel()
         return True
 
@@ -158,7 +158,7 @@ class Runs:
         owner = run.owner_sub
         status, error, usage = "stopped", None, {}
         if not run.stopped:
-            run.streaming = True
+            run.cancellable = True
             try:
                 usage = await self._stream(run, message_id, llm, model, context)
                 status = "complete"
@@ -170,7 +170,7 @@ class Runs:
                 log.exception("chat run failed")
                 status, error = "error", "Something went wrong"
             finally:
-                run.streaming = False
+                run.cancellable = False
         if error:
             run.publish("error", {"message": error})
 
@@ -196,10 +196,20 @@ class Runs:
                 prompt_tokens=usage.get("prompt_tokens"),
                 completion_tokens=usage.get("completion_tokens"),
             )
-            if status == "complete" and title_from:
-                await self._title(run, conversation_id, llm, model, title_from)
         except Exception:
+            # The row stays `streaming` until the startup sweep marks it `stopped`.
             log.exception("chat run final save failed")
+        try:
+            if status == "complete" and title_from and not run.stopped:
+                run.cancellable = True
+                try:
+                    await self._title(run, conversation_id, llm, model, title_from)
+                except asyncio.CancelledError:
+                    # stop() during the title: keep the fallback. A rename already in
+                    # its thread may still land, unpublished; the next list shows it.
+                    asyncio.current_task().uncancel()
+                finally:
+                    run.cancellable = False
         finally:
             # No await between these two: a subscriber either gets `done` or finds no run.
             run.publish("done", {"message": message})
@@ -222,13 +232,18 @@ class Runs:
                     run.publish(kind, {"text": rest[0]})
                     if time.monotonic() - flushed >= self.flush_seconds:
                         flushed = time.monotonic()
-                        await self._db(
-                            "update_message",
-                            run.owner_sub,
-                            message_id,
-                            content=run.content,
-                            reasoning=run.reasoning or None,
-                        )
+                        # Crash insurance only: the final save is authoritative. A flush
+                        # cancelled by stop() may commit after it, harmlessly (same text).
+                        try:
+                            await self._db(
+                                "update_message",
+                                run.owner_sub,
+                                message_id,
+                                content=run.content,
+                                reasoning=run.reasoning or None,
+                            )
+                        except Exception as exc:
+                            log.warning("chat flush failed: %s", type(exc).__name__)
         return usage
 
     async def _title(

@@ -31,6 +31,9 @@ class FakeLlm:
 
     async def complete(self, model, messages):
         self.completions.append((model, messages))
+        if self.title is WAIT:
+            self.waiting.set()
+            await self.gate.wait()
         if isinstance(self.title, Exception):
             raise self.title
         return self.title
@@ -228,6 +231,46 @@ def test_title_failure_keeps_fallback():
         assert [kind for kind, _ in events] == ["content", "done"]
         assert events[-1][1]["message"]["status"] == "complete"
         assert convo.title == "New chat"
+
+    asyncio.run(body())
+
+
+def test_stop_during_title_publishes_done_promptly():
+    async def body():
+        runs, repo, convo, msg = setup()
+        llm = FakeLlm([("content", "Sure")], title=WAIT)  # complete() never returns
+        events = start(runs, convo, msg, llm, title_from="Plan a trip")
+        await llm.waiting.wait()
+
+        assert runs.stop("alice", convo.id) is True
+        rest = await drain(events)
+
+        assert [kind for kind, _ in rest] == ["content", "done"]
+        assert rest[-1][1]["message"]["status"] == "complete"
+        assert (msg.status, convo.title) == ("complete", "New chat")
+        assert runs.running("alice") == set()
+
+    asyncio.run(body())
+
+
+def test_failed_periodic_flush_does_not_end_the_run():
+    async def body():
+        runs, repo, convo, msg = setup(flush_seconds=0)
+        real, calls = repo.update_message, []
+
+        def flaky(*args, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise RuntimeError("db blip")
+            real(*args, **kwargs)
+
+        repo.update_message = flaky
+        llm = FakeLlm([("content", "a"), ("content", "b")])
+        events = await drain(start(runs, convo, msg, llm))
+
+        assert [kind for kind, _ in events] == ["content", "content", "done"]
+        assert (msg.content, msg.status, msg.error) == ("ab", "complete", None)
+        assert len(calls) == 3  # two flushes, one final save
 
     asyncio.run(body())
 
