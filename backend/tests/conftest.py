@@ -808,6 +808,9 @@ class FakeChatRepository:
     def add_message(
         self, owner_sub, conversation_id, *, role, content, status="complete", model=None
     ):
+        convo = self.get(owner_sub, conversation_id)
+        if convo is None:
+            raise LookupError(conversation_id)
         now = datetime.now(UTC)
         row = Message(
             id=uuid.uuid4(),
@@ -819,9 +822,7 @@ class FakeChatRepository:
             created_at=now,
         )
         self.rows.append(row)
-        convo = self._owned(owner_sub, conversation_id)
-        if convo is not None:
-            convo.updated_at = now
+        convo.updated_at = now
         return row
 
     def _message(self, owner_sub, message_id):

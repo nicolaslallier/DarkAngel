@@ -1,5 +1,7 @@
 """Integration — the chat repository's SQL, against a real PostgreSQL."""
 
+import uuid
+
 import pytest
 
 from app.repositories.chat import ChatRepository
@@ -94,3 +96,31 @@ def test_stop_streaming_marks_streaming_messages_stopped(chat):
 
     assert chat.stop_streaming() == 1
     assert [m.status for m in chat.messages("user-1", convo.id)] == ["stopped", "complete"]
+
+
+def test_add_message_refuses_another_owners_conversation(chat):
+    convo = chat.create("user-1", "x")
+    gone = chat.create("user-1", "gone")
+    chat.soft_delete("user-1", gone.id)
+
+    with pytest.raises(LookupError):
+        chat.add_message("user-2", convo.id, role="user", content="intruder")
+    with pytest.raises(LookupError):
+        chat.add_message("user-1", gone.id, role="user", content="late")
+
+    assert chat.messages("user-1", convo.id) == []
+
+
+def test_truncate_after_unknown_or_foreign_pivot_deletes_nothing(chat):
+    mine = chat.create("user-1", "x")
+    other = chat.create("user-1", "y")
+    kept = [chat.add_message("user-1", mine.id, role="user", content=str(i)).id for i in range(2)]
+    foreign = chat.add_message("user-1", other.id, role="user", content="p").id
+    chat.add_message("user-1", other.id, role="user", content="q")
+
+    chat.truncate_after("user-1", mine.id, uuid.uuid4())
+    chat.truncate_after("user-1", mine.id, foreign)
+    chat.truncate_after("user-2", mine.id, kept[0])
+
+    assert [m.id for m in chat.messages("user-1", mine.id)] == kept
+    assert len(chat.messages("user-1", other.id)) == 2

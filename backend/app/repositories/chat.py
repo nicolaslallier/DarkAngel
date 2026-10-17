@@ -86,6 +86,10 @@ class ChatRepository:
         status: str = "complete",
         model: str | None = None,
     ) -> Message:
+        """Raises LookupError, inserting nothing, unless the conversation is the
+        caller's and live."""
+        if self.get(owner_sub, conversation_id) is None:
+            raise LookupError(conversation_id)
         row = Message(
             id=uuid.uuid4(),
             conversation_id=conversation_id,
@@ -115,8 +119,14 @@ class ChatRepository:
         self, owner_sub: str, conversation_id: uuid.UUID, message_id: uuid.UUID
     ) -> None:
         """Hard-delete every message created strictly after `message_id`."""
-        pivot = select(Message.created_at, Message.id).where(Message.id == message_id)
-        pivot_at, pivot_id = self.db.execute(pivot).one()
+        pivot = select(Message.created_at, Message.id).where(
+            Message.id == message_id,
+            Message.conversation_id.in_(self._owned(owner_sub, conversation_id)),
+        )
+        found = self.db.execute(pivot).one_or_none()
+        if found is None:
+            return
+        pivot_at, pivot_id = found
         self.db.execute(
             delete(Message).where(
                 Message.conversation_id.in_(self._owned(owner_sub, conversation_id)),
