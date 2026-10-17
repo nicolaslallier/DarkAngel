@@ -87,7 +87,8 @@ def test_send_stream_has_start_deltas_done_in_order_then_title(chat):
     )
     wait_until(lambda: chat.repo.conversations[0].title == "Smart title")  # detached, after done
     model, context = chat.llm.streams[0]
-    assert model == "m" and context[0]["role"] == "system"
+    assert model == "m"
+    assert context[0]["role"] == "system"
     assert context[1:] == [{"role": "user", "content": "Hi there"}]
 
 

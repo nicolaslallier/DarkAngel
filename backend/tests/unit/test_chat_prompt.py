@@ -40,7 +40,8 @@ def test_context_drops_oldest_first_and_keeps_newest():
     assert [m["content"][0] for m in ctx[1:]] == ["b", "c"]
     # newest survives even when it alone busts the budget
     ctx = build_context([_msg("user", "z" * 1000)], 50, NOW)
-    assert len(ctx) == 2 and ctx[1]["content"] == "z" * 1000
+    assert len(ctx) == 2
+    assert ctx[1]["content"] == "z" * 1000
 
 
 def test_fallback_title_collapses_and_truncates():

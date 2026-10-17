@@ -69,11 +69,16 @@ async def drain(events):
 
 def test_run_saves_complete_reply_and_publishes_done():
     async def body():
-        runs, repo, convo, msg = setup()
+        runs, _repo, convo, msg = setup()
         usage = {"prompt_tokens": 5, "completion_tokens": 2}
         llm = FakeLlm(
-            [("progress", 1, 4), ("reasoning", "Think"), ("content", "Hel"), ("content", "lo")]
-            + [("usage", usage)]
+            [
+                ("progress", 1, 4),
+                ("reasoning", "Think"),
+                ("content", "Hel"),
+                ("content", "lo"),
+                ("usage", usage),
+            ]
         )
         events = await drain(start(runs, convo, msg, llm))
 
@@ -84,7 +89,8 @@ def test_run_saves_complete_reply_and_publishes_done():
             ("content", {"text": "lo"}),
         ]
         kind, data = events[4]
-        assert kind == "done" and len(events) == 5
+        assert kind == "done"
+        assert len(events) == 5
         assert data["message"] == {
             "id": str(msg.id),
             "role": "assistant",
@@ -106,7 +112,7 @@ def test_run_saves_complete_reply_and_publishes_done():
 
 def test_reasoning_only_reply_saves_complete_with_empty_content():
     async def body():
-        runs, repo, convo, msg = setup()
+        runs, _repo, convo, msg = setup()
         events = await drain(start(runs, convo, msg, FakeLlm([("reasoning", "hmm")])))
 
         assert events[-1][1]["message"]["status"] == "complete"
@@ -117,7 +123,7 @@ def test_reasoning_only_reply_saves_complete_with_empty_content():
 
 def test_dropped_subscriber_does_not_stop_the_run():
     async def body():
-        runs, repo, convo, msg = setup()
+        runs, _repo, convo, msg = setup()
         llm = FakeLlm([("content", "a"), WAIT, ("content", "b")])
         first = start(runs, convo, msg, llm)
         assert await anext(first) == ("content", {"text": "a"})
@@ -137,7 +143,7 @@ def test_dropped_subscriber_does_not_stop_the_run():
 
 def test_snapshot_subscriber_gets_text_so_far_then_live_deltas():
     async def body():
-        runs, repo, convo, msg = setup()
+        runs, _repo, convo, msg = setup()
         llm = FakeLlm([("reasoning", "r"), ("content", "Hel"), WAIT, ("content", "lo")])
         first = start(runs, convo, msg, llm)
         await llm.waiting.wait()
@@ -150,14 +156,15 @@ def test_snapshot_subscriber_gets_text_so_far_then_live_deltas():
             ("snapshot", {"reasoning": "r", "content": "Hel"}),
             ("content", {"text": "lo"}),
         ]
-        assert events[2][0] == "done" and len(events) == 3
+        assert events[2][0] == "done"
+        assert len(events) == 3
 
     asyncio.run(body())
 
 
 def test_stop_saves_stopped_and_publishes_done():
     async def body():
-        runs, repo, convo, msg = setup()
+        runs, _repo, convo, msg = setup()
         events = start(runs, convo, msg, FakeLlm([("content", "par"), WAIT]))
         assert await anext(events) == ("content", {"text": "par"})
 
@@ -175,7 +182,7 @@ def test_stop_saves_stopped_and_publishes_done():
 
 def test_llm_error_saves_error_status_and_safe_text():
     async def body():
-        runs, repo, convo, msg = setup()
+        runs, _repo, convo, msg = setup()
         llm = FakeLlm([("content", "x")], error=LlmError("m is not loaded on the cluster"))
         events = await drain(start(runs, convo, msg, llm, title_from="hi"))
 
@@ -194,7 +201,7 @@ def test_llm_error_saves_error_status_and_safe_text():
 
 def test_partial_text_is_flushed_while_streaming():
     async def body():
-        runs, repo, convo, msg = setup(flush_seconds=0)
+        runs, _repo, convo, msg = setup(flush_seconds=0)
         llm = FakeLlm([("reasoning", "r"), ("content", "a"), WAIT, ("content", "b")])
         events = start(runs, convo, msg, llm)
         await llm.waiting.wait()
@@ -214,7 +221,7 @@ async def settle(runs):
 
 def test_first_reply_gets_model_title_after_done():
     async def body():
-        runs, repo, convo, msg = setup()
+        runs, _repo, convo, msg = setup()
         llm = FakeLlm([("content", "Sure")], title='"Lisbon trip plan"\nmore text')
         events = await drain(start(runs, convo, msg, llm, title_from="Plan a trip to Lisbon"))
 
@@ -223,7 +230,8 @@ def test_first_reply_gets_model_title_after_done():
         await settle(runs)
         assert convo.title == "Lisbon trip plan"
         ((model, prompt),) = llm.completions
-        assert model == "m" and "Plan a trip to Lisbon" in prompt[-1]["content"]
+        assert model == "m"
+        assert "Plan a trip to Lisbon" in prompt[-1]["content"]
         assert runs._titles == set()
 
     asyncio.run(body())
@@ -231,7 +239,7 @@ def test_first_reply_gets_model_title_after_done():
 
 def test_title_failure_keeps_fallback():
     async def body():
-        runs, repo, convo, msg = setup()
+        runs, _repo, convo, msg = setup()
         llm = FakeLlm([("content", "Sure")], title=LlmError("The model did not answer"))
         events = await drain(start(runs, convo, msg, llm, title_from="Plan a trip"))
         await settle(runs)
@@ -245,7 +253,7 @@ def test_title_failure_keeps_fallback():
 
 def test_hanging_title_does_not_delay_done_and_times_out():
     async def body():
-        runs, repo, convo, msg = setup(title_timeout=0.05)
+        runs, _repo, convo, msg = setup(title_timeout=0.05)
         llm = FakeLlm([("content", "Sure")], title=WAIT)  # complete() never returns
         events = await drain(start(runs, convo, msg, llm, title_from="Plan a trip"))
 
@@ -260,7 +268,7 @@ def test_hanging_title_does_not_delay_done_and_times_out():
 
 def test_stop_after_done_does_not_affect_the_title():
     async def body():
-        runs, repo, convo, msg = setup()
+        runs, _repo, convo, msg = setup()
         llm = FakeLlm([("content", "Sure")], title=WAIT)
         await drain(start(runs, convo, msg, llm, title_from="Plan a trip"))
         await llm.waiting.wait()
@@ -297,7 +305,7 @@ def test_failed_periodic_flush_does_not_end_the_run():
 
 
 def test_reserve_twice_raises_busy():
-    runs, repo, convo, msg = setup()
+    runs, _repo, convo, _msg = setup()
     runs.reserve(convo.id)
     with pytest.raises(Busy):
         runs.reserve(convo.id)
@@ -308,7 +316,7 @@ def test_reserve_twice_raises_busy():
 
 def test_other_owner_cannot_subscribe_or_stop():
     async def body():
-        runs, repo, convo, msg = setup()
+        runs, _repo, convo, msg = setup()
         events = start(runs, convo, msg, FakeLlm([WAIT]))  # the task has not run yet
 
         assert runs.subscribe("bob", convo.id, snapshot=True) is None

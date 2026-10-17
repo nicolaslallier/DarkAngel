@@ -40,5 +40,6 @@ def test_user_two_cannot_touch_user_ones_conversation_or_its_run(chat):
     done = sse_events(future.result(timeout=5).text)[-1][1]["message"]
     assert (done["status"], done["content"]) == ("complete", "Hello")
     convo = chat.repo.conversations[0]
-    assert convo.deleted_at is None and convo.title != "mine"
+    assert convo.deleted_at is None
+    assert convo.title != "mine"
     assert len(chat.repo.rows) == 2

@@ -232,7 +232,8 @@ def test_empty_api_key_sends_no_authorization_header():
 
     c.transport = httpx.MockTransport(handler)
     collect(c)
-    assert seen and all("authorization" not in r.headers for r in seen)
+    assert seen
+    assert all("authorization" not in r.headers for r in seen)
 
 
 def test_malformed_prefill_progress_line_is_skipped():

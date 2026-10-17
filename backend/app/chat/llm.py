@@ -185,7 +185,9 @@ class LlmClient:
             return LlmError(f"{model} is not loaded on the cluster")
         return LlmError("The model did not answer")
 
-    async def stream(self, model: str, messages: list[dict]) -> AsyncIterator[Event]:
+    async def stream(  # noqa: C901 -- one SSE parse loop, one branch per line kind
+        self, model: str, messages: list[dict]
+    ) -> AsyncIterator[Event]:
         timeout = httpx.Timeout(self.timeout, connect=5)
         splitter = _ThinkSplitter()
         try:
