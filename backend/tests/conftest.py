@@ -1,7 +1,10 @@
+import asyncio
+import json
 import secrets
 import time
 import uuid
 from collections import Counter
+from contextlib import nullcontext
 from datetime import UTC, date, datetime
 from textwrap import shorten
 from types import SimpleNamespace
@@ -10,16 +13,22 @@ from typing import ClassVar
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi.testclient import TestClient
 from minio.error import S3Error
 
+from app import main
 from app.api.routes import files
+from app.chat.llm import ModelInfo, llm_client
+from app.chat.runs import Runs, chat_runs
 from app.core import auth
 from app.core.clock import today
 from app.main import app
+from app.models.chat import Conversation, Message
 from app.models.files import File, Folder
 from app.models.households import Household, HouseholdMember
 from app.models.infra import BackupStatus, InfraStatus
 from app.models.providers import Invoice, InvoiceTax, Provider, Service
+from app.repositories.chat import chat_repository
 from app.repositories.files import NameTaken, QuotaExceeded, file_repository
 from app.repositories.folders import folder_repository
 from app.repositories.households import (
@@ -749,3 +758,182 @@ def infra():
     app.dependency_overrides[infra_repository] = lambda: fake
     yield fake
     app.dependency_overrides.pop(infra_repository, None)
+
+
+class FakeChatRepository:
+    """ChatRepository over lists, same signatures. Plain in-memory object: the
+    background reply runner uses it from an asyncio task, not a request."""
+
+    def __init__(self):
+        self.conversations: list[Conversation] = []
+        self.rows: list[Message] = []
+
+    def _owned(self, owner_sub, conversation_id):
+        return next(
+            (c for c in self.conversations if c.id == conversation_id and c.owner_sub == owner_sub),
+            None,
+        )
+
+    def list(self, owner_sub, q=None):
+        found = [c for c in self.conversations if c.owner_sub == owner_sub and not c.deleted_at]
+        if q:
+            needle = q.lower()
+            hits = {m.conversation_id for m in self.rows if needle in m.content.lower()}
+            found = [c for c in found if needle in c.title.lower() or c.id in hits]
+        return sorted(found, key=lambda c: c.updated_at, reverse=True)
+
+    def get(self, owner_sub, conversation_id):
+        row = self._owned(owner_sub, conversation_id)
+        return None if row is None or row.deleted_at else row
+
+    def create(self, owner_sub, title):
+        now = datetime.now(UTC)
+        row = Conversation(
+            id=uuid.uuid4(), owner_sub=owner_sub, title=title, created_at=now, updated_at=now
+        )
+        self.conversations.append(row)
+        return row
+
+    def rename(self, owner_sub, conversation_id, title):
+        row = self.get(owner_sub, conversation_id)
+        if row is not None:
+            row.title = title
+        return row
+
+    def soft_delete(self, owner_sub, conversation_id):
+        row = self.get(owner_sub, conversation_id)
+        if row is None:
+            return False
+        row.deleted_at = datetime.now(UTC)
+        return True
+
+    def messages(self, owner_sub, conversation_id):
+        if self._owned(owner_sub, conversation_id) is None:
+            return []
+        return [m for m in self.rows if m.conversation_id == conversation_id]
+
+    def add_message(
+        self, owner_sub, conversation_id, *, role, content, status="complete", model=None
+    ):
+        convo = self.get(owner_sub, conversation_id)
+        if convo is None:
+            raise LookupError(conversation_id)
+        now = datetime.now(UTC)
+        row = Message(
+            id=uuid.uuid4(),
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            status=status,
+            model=model,
+            created_at=now,
+        )
+        self.rows.append(row)
+        convo.updated_at = now
+        return row
+
+    def _message(self, owner_sub, message_id):
+        return next(
+            (
+                m
+                for m in self.rows
+                if m.id == message_id and self._owned(owner_sub, m.conversation_id)
+            ),
+            None,
+        )
+
+    def update_message(self, owner_sub, message_id, **fields):
+        row = self._message(owner_sub, message_id)
+        for field, value in fields.items():
+            if row is not None:
+                setattr(row, field, value)
+
+    def truncate_after(self, owner_sub, conversation_id, message_id):
+        mine = self.messages(owner_sub, conversation_id)
+        ids = [m.id for m in mine]
+        if message_id in ids:
+            drop = set(ids[ids.index(message_id) + 1 :])
+            self.rows = [m for m in self.rows if m.id not in drop]
+
+    def delete_message(self, owner_sub, message_id):
+        row = self._message(owner_sub, message_id)
+        if row is not None:
+            self.rows.remove(row)
+
+    def stop_streaming(self):
+        streaming = [m for m in self.rows if m.status == "streaming"]
+        for m in streaming:
+            m.status = "stopped"
+        return len(streaming)
+
+
+@pytest.fixture
+def chat_repo():
+    """Swap the chat repository for an in-memory fake. Explicit, never autouse."""
+    fake = FakeChatRepository()
+    app.dependency_overrides[chat_repository] = lambda: fake
+    yield fake
+    app.dependency_overrides.pop(chat_repository, None)
+
+
+WAIT = ("wait",)  # FakeLlm.stream pauses here until `gate` is set
+
+
+class FakeLlm:
+    """LlmClient stand-in. `gate`/`waiting` are asyncio events on the app's loop:
+    set `gate` through `client.portal.call(llm.gate.set)`."""
+
+    def __init__(self, events=(("content", "Hello"),), title="Smart title"):
+        self.events = list(events)
+        self.title = title
+        self.listed = [ModelInfo("m", True, 32768), ModelInfo("cloud", None, 8000)]
+        self.gate = asyncio.Event()
+        self.waiting = asyncio.Event()
+        self.streams: list[tuple[str, list[dict]]] = []
+
+    async def models(self):
+        return self.listed
+
+    async def stream(self, model, messages):
+        self.streams.append((model, messages))
+        for event in self.events:
+            if event == WAIT:
+                self.waiting.set()
+                await self.gate.wait()
+                continue
+            yield event
+
+    async def complete(self, model, messages):
+        return self.title
+
+
+def sse_events(body: str) -> list[tuple[str, dict]]:
+    out = []
+    for block in body.strip().split("\n\n"):
+        lines = dict(line.split(": ", 1) for line in block.splitlines())
+        out.append((lines["event"], json.loads(lines["data"])))
+    return out
+
+
+def wait_until(condition, seconds=5.0):
+    deadline = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.01)
+
+
+@pytest.fixture
+def chat(chat_repo, monkeypatch):
+    """A live app (runs outlive a request) over the fake repository, a FakeLlm and
+    a fresh Runs registry. Unit tests never touch the DB, so no startup sweep."""
+    monkeypatch.setattr(main, "reset_interrupted", lambda: None)
+    llm = FakeLlm()
+    runs = Runs(store=lambda: nullcontext(chat_repo))
+    app.dependency_overrides[llm_client] = lambda: llm
+    app.dependency_overrides[chat_runs] = lambda: runs
+    with TestClient(app) as client:
+        yield SimpleNamespace(client=client, repo=chat_repo, runs=runs, llm=llm)
+        client.portal.call(llm.gate.set)
+        wait_until(lambda: not runs._runs)
+    app.dependency_overrides.pop(llm_client, None)
+    app.dependency_overrides.pop(chat_runs, None)

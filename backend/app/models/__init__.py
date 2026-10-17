@@ -1,3 +1,4 @@
+from app.models.chat import Conversation, Message
 from app.models.files import AuditLog, Base, File, FileVersion, Folder
 from app.models.households import Household, HouseholdInvitation, HouseholdMember
 from app.models.infra import BackupStatus, InfraStatus
@@ -7,6 +8,7 @@ __all__ = [
     "AuditLog",
     "BackupStatus",
     "Base",
+    "Conversation",
     "File",
     "FileVersion",
     "Folder",
@@ -16,6 +18,7 @@ __all__ = [
     "InfraStatus",
     "Invoice",
     "InvoiceTax",
+    "Message",
     "Provider",
     "Service",
 ]

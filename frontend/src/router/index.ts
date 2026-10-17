@@ -27,6 +27,7 @@ export const router = createRouter({
       name: 'household-join',
       component: () => import('@/views/JoinView.vue'),
     },
+    { path: '/chat/:id?', name: 'chat', component: () => import('@/views/ChatView.vue') },
     { path: '/about', name: 'about', component: () => import('@/views/AboutView.vue') },
     {
       path: '/auth/callback',

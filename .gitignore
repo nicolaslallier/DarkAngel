@@ -26,3 +26,6 @@ reports/
 
 # OS / editors
 .DS_Store
+
+# Subagent-driven-development scratch
+.superpowers/

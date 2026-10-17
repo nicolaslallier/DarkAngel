@@ -30,11 +30,12 @@ export async function apiRequest(
   path: string,
   body?: BodyInit,
   contentType?: string,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const token = await accessToken()
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
   if (contentType) headers['Content-Type'] = contentType
-  const response = await fetch(`${BASE_URL}${path}`, { method, headers, body })
+  const response = await fetch(`${BASE_URL}${path}`, { method, headers, body, signal })
 
   if (!response.ok) {
     let payload: unknown = null
@@ -59,4 +60,43 @@ export async function apiSend<T>(method: string, path: string, body?: unknown): 
   const json = body === undefined ? undefined : JSON.stringify(body)
   const response = await apiRequest(method, path, json, json === undefined ? undefined : 'application/json')
   return (await response.json()) as T
+}
+
+/** A server-sent-events response as an async generator of `{event, data}` (data
+ *  JSON-parsed). A 204 yields nothing; errors are `ApiError`s from apiRequest. */
+export async function* apiStream(
+  method: string,
+  path: string,
+  body: unknown,
+  signal: AbortSignal,
+): AsyncGenerator<{ event: string; data: unknown }> {
+  const json = body === undefined ? undefined : JSON.stringify(body)
+  const response = await apiRequest(
+    method,
+    path,
+    json,
+    json === undefined ? undefined : 'application/json',
+    signal,
+  )
+  if (response.status === 204 || !response.body) return
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done })
+    const frames = buffer.split(/\r?\n\r?\n/)
+    buffer = done ? '' : (frames.pop() ?? '')
+    for (const frame of frames) {
+      let event = 'message'
+      const data: string[] = []
+      for (const line of frame.split(/\r?\n/)) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+      }
+      if (data.length) yield { event, data: JSON.parse(data.join('\n')) }
+    }
+    if (done) return
+  }
 }
