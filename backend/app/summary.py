@@ -49,6 +49,21 @@ _THINKING = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 VIDEO = {"mp4", "mov", "m4v", "mkv", "webm", "avi", "mpg", "mpeg", "wmv", "3gp"}
 IMAGE = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif"}
+# ffmpeg input options that keep it on the uploaded bytes. Without them an
+# uploaded HLS playlist or concat list (say `x.mp4` sent as
+# application/vnd.apple.mpegurl) makes ffmpeg fetch every URL it names: SSRF
+# from the backend. Only single-file demuxers are allowed, never a playlist
+# one. A name matches any alias: "mov" covers mov,mp4,m4a,3gp,3g2,mj2 (and
+# heic), "matroska" covers webm, "asf" is wmv. VIDEO plus what video/* brings.
+VIDEO_INPUT = [
+    "-protocol_whitelist", "http,https,tcp,tls,httpproxy",
+    "-format_whitelist", "mov,matroska,avi,mpeg,mpegts,mpegvideo,m4v,asf,ogg,flv,mxf,dv,rm",
+]  # fmt: skip
+# Images come on stdin and read nothing else.
+IMAGE_INPUT = [
+    "-protocol_whitelist", "pipe",
+    "-format_whitelist", "png_pipe,jpeg_pipe,gif,gif_pipe,webp_pipe,bmp_pipe,tiff_pipe,mov",
+]  # fmt: skip
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _S = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 
@@ -118,23 +133,31 @@ def xlsx_text(data: bytes) -> str:
     return "\n".join(lines)
 
 
-def _jpeg(source: str, *, data: bytes | None = None, at: float | None = None) -> bytes:
+def _jpeg(
+    source: str, *, inputs: list[str], data: bytes | None = None, at: float | None = None
+) -> bytes:
     """One still as a JPEG at most 1024 px wide: the whole of an image, or the
-    frame of a video `at` seconds in. ffmpeg reads the many formats Ollama
-    does not (webp, heic, tiff...), and a phone photo shrinks from megabytes."""
+    frame of a video `at` seconds in; b"" when ffmpeg cannot read it. ffmpeg
+    reads the many formats Ollama does not (webp, heic, tiff...), and a phone
+    photo shrinks from megabytes. `inputs` is IMAGE_INPUT or VIDEO_INPUT."""
     seek = ["-ss", f"{at:.2f}"] if at is not None else []
     command = [
-        "ffmpeg", "-v", "error", *seek, "-i", source, "-frames:v", "1",
+        "ffmpeg", "-v", "error", *inputs, *seek, "-i", source, "-frames:v", "1",
         "-vf", "scale='min(1024,iw)':-2", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1",
     ]  # fmt: skip
     # An argv list, no shell: nothing in `source` is ever interpreted.
-    done = subprocess.run(command, input=data, capture_output=True, timeout=120, check=True)  # noqa: S603
-    return done.stdout
+    done = subprocess.run(command, input=data, capture_output=True, timeout=120, check=False)  # noqa: S603
+    return done.stdout if done.returncode == 0 else b""
 
 
 def _duration(url: str) -> float | None:
-    command = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"]
-    done = subprocess.run([*command, url], capture_output=True, timeout=60, check=True)  # noqa: S603
+    """Seconds, None for a live-style stream with no duration. Raises
+    CalledProcessError when ffprobe cannot read it at all."""
+    command = [
+        "ffprobe", "-v", "error", *VIDEO_INPUT,
+        "-show_entries", "format=duration", "-of", "csv=p=0", url,
+    ]  # fmt: skip
+    done = subprocess.run(command, capture_output=True, timeout=60, check=True)  # noqa: S603
     try:
         return float(done.stdout)
     except ValueError:
@@ -185,8 +208,13 @@ def material(
 
     if content_type.startswith("video/") or ext in VIDEO:
         url = _video_url(object_key)
-        duration = _duration(url)
-        stills = [_jpeg(url, at=duration * f if duration else None) for f in FRAMES]
+        try:
+            duration = _duration(url)
+        except subprocess.CalledProcessError:
+            return None  # not a video ffmpeg will open (or a disguised playlist)
+        stills = [
+            _jpeg(url, inputs=VIDEO_INPUT, at=duration * f if duration else None) for f in FRAMES
+        ]
         stills = [s for s in stills if s]
         prompt = (
             f"These are {len(stills)} stills taken in order through a video named {name!r}. "
@@ -198,12 +226,12 @@ def material(
         return None
 
     if content_type.startswith("image/") or ext in IMAGE:
-        still = _jpeg("pipe:0", data=_read(object_key, MAX_READ_BYTES))
+        still = _jpeg("pipe:0", inputs=IMAGE_INPUT, data=_read(object_key, MAX_READ_BYTES))
         prompt = (
             f"Describe the image named {name!r} in three to five sentences: what it "
             "shows, and any text written in it. Summary only."
         )
-        return prompt, [still]
+        return (prompt, [still]) if still else None
 
     extract = {"pdf": pdf_text, "docx": docx_text, "xlsx": xlsx_text}.get(ext)
     if extract is not None:
