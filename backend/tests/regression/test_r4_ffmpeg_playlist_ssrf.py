@@ -1,4 +1,4 @@
-"""Regression — security review R4, SSRF through ffmpeg playlists.
+"""Regression — security review R4, SSRF through ffmpeg playlists (PR #37).
 
 Originally: the video summary handed ffprobe/ffmpeg the presigned URL with no
 input restrictions. An upload named `x.mp4` but stored as
@@ -6,44 +6,57 @@ input restrictions. An upload named `x.mp4` but stored as
 ffmpeg's HLS demuxer, which then fetched every segment URL in it — any host
 the backend container could reach. An image piped on stdin could do the same.
 
-Every ffmpeg/ffprobe call now pins its input: pipe-only for images, and for
-videos HTTP plus container demuxers only (no hls, concat...).
+Every ffmpeg/ffprobe call now pins its input to single-file demuxers, and the
+image path to the pipe. tests/integration/test_ffmpeg_inputs.py proves the
+same against a real ffmpeg.
 """
 
 import subprocess
 
 from app import summary
 
+PLAYLISTS = {"hls", "concat", "ffconcat", "image2", "image2pipe", "tee", "data"}
 
-def _argv(monkeypatch, call) -> list[str]:
-    seen = []
+
+def _record(monkeypatch, returncode=0):
+    calls = []
 
     def run(command, **_):
-        seen.append(command)
-        return subprocess.CompletedProcess(command, 0, stdout=b"1.0")
+        calls.append(command)
+        if returncode and command[0] == "ffprobe":
+            raise subprocess.CalledProcessError(returncode, command)
+        return subprocess.CompletedProcess(command, returncode, stdout=b"10.0")
 
     monkeypatch.setattr(summary.subprocess, "run", run)
-    call()
-    return seen[0]
+    monkeypatch.setattr(summary, "_video_url", lambda key: "http://s3/b/k?sig")
+    monkeypatch.setattr(summary, "_read", lambda key, limit: b"bytes")
+    return calls
 
 
-def _option(argv: list[str], name: str) -> str:
-    # An input option only counts before -i (ffmpeg) or anywhere (ffprobe).
-    end = argv.index("-i") if "-i" in argv else len(argv)
-    return argv[argv.index(name, 0, end) + 1]
+def _input_option(argv: list[str], name: str) -> set[str]:
+    end = argv.index("-i") if "-i" in argv else len(argv)  # ffprobe has no -i
+    return set(argv[argv.index(name, 0, end) + 1].split(","))
 
 
-def test_video_reads_are_limited_to_container_demuxers(monkeypatch):
-    url = "http://s3/bucket/key?sig"
-    for call in (lambda: summary._duration(url), lambda: summary._jpeg(url, at=1.0)):
-        argv = _argv(monkeypatch, call)
-        formats = _option(argv, "-format_whitelist").split(",")
-        assert "hls" not in formats
-        assert "concat" not in formats
-        assert "mp4" in formats
-        assert "file" not in _option(argv, "-protocol_whitelist").split(",")
+def test_every_video_read_allows_no_playlist_demuxer(monkeypatch):
+    calls = _record(monkeypatch)
+    summary.material("x.mp4", "application/vnd.apple.mpegurl", "u/k", 10)
+
+    assert [c[0] for c in calls] == ["ffprobe"] + ["ffmpeg"] * len(summary.FRAMES)
+    for argv in calls:
+        assert not _input_option(argv, "-format_whitelist") & PLAYLISTS
+        assert "file" not in _input_option(argv, "-protocol_whitelist")
 
 
-def test_an_image_on_the_pipe_reads_nothing_else(monkeypatch):
-    argv = _argv(monkeypatch, lambda: summary._jpeg("pipe:0", data=b"x"))
-    assert _option(argv, "-protocol_whitelist") == "pipe"
+def test_an_image_reads_the_pipe_and_nothing_else(monkeypatch):
+    calls = _record(monkeypatch)
+    summary.material("x.png", "image/png", "u/k", 10)
+
+    [argv] = calls
+    assert _input_option(argv, "-protocol_whitelist") == {"pipe"}
+    assert not _input_option(argv, "-format_whitelist") & PLAYLISTS
+
+
+def test_a_refused_video_is_no_summary_rather_than_an_error(monkeypatch):
+    _record(monkeypatch, returncode=1)
+    assert summary.material("x.mp4", "video/mp4", "u/k", 10) is None

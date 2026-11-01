@@ -151,8 +151,8 @@ def test_material_for_an_image_is_the_image_as_a_jpeg(store, monkeypatch):
     key = stored(store, "u/cat.webp", b"RIFF-webp-bytes", "image/webp")
     seen = {}
 
-    def jpeg(source, *, data=None, at=None):
-        seen.update(source=source, data=data, at=at)
+    def jpeg(source, *, inputs, data=None, at=None):
+        seen.update(source=source, inputs=inputs, data=data, at=at)
         return b"JPEG"
 
     monkeypatch.setattr(summary, "_jpeg", jpeg)
@@ -160,7 +160,12 @@ def test_material_for_an_image_is_the_image_as_a_jpeg(store, monkeypatch):
     prompt, images = summary.material("cat.webp", "image/webp", key, 15)
 
     assert images == [b"JPEG"]
-    assert seen == {"source": "pipe:0", "data": b"RIFF-webp-bytes", "at": None}
+    assert seen == {
+        "source": "pipe:0",
+        "inputs": summary.IMAGE_INPUT,
+        "data": b"RIFF-webp-bytes",
+        "at": None,
+    }
     assert "image" in prompt
 
 
@@ -169,7 +174,8 @@ def test_material_for_a_video_is_stills_through_it(monkeypatch):
     monkeypatch.setattr(summary, "_duration", lambda url: 100.0)
     taken = []
 
-    def jpeg(source, *, data=None, at=None):
+    def jpeg(source, *, inputs, data=None, at=None):
+        assert inputs is summary.VIDEO_INPUT
         taken.append((source, at))
         return b"JPEG"
 
