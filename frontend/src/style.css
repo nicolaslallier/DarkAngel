@@ -2,7 +2,8 @@
    need almost no CSS of their own. Light/dark follow the OS. */
 
 :root {
-  --bg: #f6f7f9;
+  --bg: linear-gradient(135deg, #e0e7ff 0%, #fae8ff 55%, #cffafe 100%) fixed;
+  --brand-grad: linear-gradient(90deg, #6366f1, #a855f7, #ec4899);
   --surface: #ffffff;
   --surface-2: #eef0f4;
   --text: #4b5563;
@@ -34,7 +35,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1117;
+    --bg: linear-gradient(135deg, #14122e 0%, #2a0a45 55%, #082b3a 100%) fixed;
+    --brand-grad: linear-gradient(90deg, #4338ca, #7e22ce, #be185d);
     --surface: #171a22;
     --surface-2: #1f232d;
     --text: #aab2c0;
@@ -84,6 +86,10 @@ h3 {
   letter-spacing: -0.01em;
 }
 h1 {
+  background: var(--brand-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   font-size: 1.75rem;
   margin: 0 0 1.25rem;
 }

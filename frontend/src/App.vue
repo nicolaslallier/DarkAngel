@@ -27,8 +27,7 @@ import { signOut } from '@/auth'
   top: 0;
   z-index: 10;
   height: var(--header-h);
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: var(--brand-grad);
 }
 
 nav {
@@ -45,34 +44,34 @@ nav {
 nav a {
   padding: 0.35rem 0.75rem;
   border-radius: 8px;
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.85);
   font-weight: 500;
   white-space: nowrap;
 }
 nav a:hover {
-  color: var(--text-h);
-  background: var(--surface-2);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
   text-decoration: none;
 }
 nav a.router-link-active,
 nav a.active {
-  color: var(--accent);
-  background: var(--accent-bg);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.28);
 }
 /* "/" prefixes every route, so only the exact match counts as active. */
 nav a[href='/']:not(.active):not(.brand) {
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.85);
   background: none;
 }
 
 .brand {
   margin-right: 0.75rem;
-  color: var(--text-h);
+  color: #fff;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 nav a.brand.router-link-active {
-  color: var(--text-h);
+  color: #fff;
   background: none;
 }
 
