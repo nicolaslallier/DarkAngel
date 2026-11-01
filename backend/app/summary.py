@@ -48,6 +48,8 @@ MAX_SUMMARY = 2000
 _THINKING = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 VIDEO = {"mp4", "mov", "m4v", "mkv", "webm", "avi", "mpg", "mpeg", "wmv", "3gp"}
+# The demuxers behind VIDEO (wmv is asf); playlist ones (hls, concat...) are left out.
+VIDEO_FORMATS = "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,mpeg,mpegts,asf"
 IMAGE = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif"}
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _S = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
@@ -118,13 +120,23 @@ def xlsx_text(data: bytes) -> str:
     return "\n".join(lines)
 
 
+def _guard(source: str) -> list[str]:
+    """Input options that keep ffmpeg on the uploaded bytes. Without them an
+    uploaded HLS playlist or concat list makes ffmpeg fetch any URL it names
+    (SSRF from the backend): an image is read from the pipe and nothing else,
+    a video only through a real container demuxer, never a playlist one."""
+    if source == "pipe:0":
+        return ["-protocol_whitelist", "pipe"]
+    return ["-protocol_whitelist", "http,https,tcp,tls", "-format_whitelist", VIDEO_FORMATS]
+
+
 def _jpeg(source: str, *, data: bytes | None = None, at: float | None = None) -> bytes:
     """One still as a JPEG at most 1024 px wide: the whole of an image, or the
     frame of a video `at` seconds in. ffmpeg reads the many formats Ollama
     does not (webp, heic, tiff...), and a phone photo shrinks from megabytes."""
     seek = ["-ss", f"{at:.2f}"] if at is not None else []
     command = [
-        "ffmpeg", "-v", "error", *seek, "-i", source, "-frames:v", "1",
+        "ffmpeg", "-v", "error", *_guard(source), *seek, "-i", source, "-frames:v", "1",
         "-vf", "scale='min(1024,iw)':-2", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1",
     ]  # fmt: skip
     # An argv list, no shell: nothing in `source` is ever interpreted.
@@ -133,8 +145,11 @@ def _jpeg(source: str, *, data: bytes | None = None, at: float | None = None) ->
 
 
 def _duration(url: str) -> float | None:
-    command = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"]
-    done = subprocess.run([*command, url], capture_output=True, timeout=60, check=True)  # noqa: S603
+    command = [
+        "ffprobe", "-v", "error", *_guard(url),
+        "-show_entries", "format=duration", "-of", "csv=p=0", url,
+    ]  # fmt: skip
+    done = subprocess.run(command, capture_output=True, timeout=60, check=True)  # noqa: S603
     try:
         return float(done.stdout)
     except ValueError:
