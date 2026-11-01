@@ -145,7 +145,7 @@ const edit = (id: string, content: string) => store.send(content, id)
 <style scoped>
 .chat {
   display: flex;
-  height: calc(100vh - 6rem);
+  height: calc(100dvh - var(--header-h) - 2 * var(--page-pad));
 }
 .conversation {
   flex: 1;
@@ -155,7 +155,7 @@ const edit = (id: string, content: string) => store.send(content, id)
   flex-direction: column;
 }
 header {
-  border-bottom: 1px solid rgba(127, 127, 127, 0.3);
+  border-bottom: 1px solid var(--border);
   padding-bottom: 0.5rem;
 }
 .burger {
@@ -177,7 +177,7 @@ header {
   opacity: 0.6;
 }
 .error {
-  color: #d33;
+  color: var(--danger);
 }
 @media (max-width: 767px) {
   .burger {

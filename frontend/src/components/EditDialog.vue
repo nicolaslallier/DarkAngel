@@ -95,6 +95,6 @@ label {
 }
 
 .error {
-  color: #e06c75;
+  color: var(--danger);
 }
 </style>

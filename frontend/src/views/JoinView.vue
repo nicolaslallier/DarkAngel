@@ -34,6 +34,6 @@ async function join() {
 
 <style scoped>
 .error {
-  color: #e06c75;
+  color: var(--danger);
 }
 </style>

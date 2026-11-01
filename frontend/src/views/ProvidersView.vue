@@ -111,11 +111,11 @@ async function onFiles(event: Event) {
 
 <style scoped>
 .error {
-  color: #e06c75;
+  color: var(--danger);
 }
 
 .overdue {
-  color: #e06c75;
+  color: var(--danger);
   font-weight: 600;
 }
 </style>

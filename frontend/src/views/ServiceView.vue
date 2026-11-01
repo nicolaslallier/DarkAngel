@@ -209,10 +209,10 @@ async function onFiles(event: Event) {
 
 <style scoped>
 .error {
-  color: #e06c75;
+  color: var(--danger);
 }
 
 .flag {
-  color: #e06c75;
+  color: var(--danger);
 }
 </style>

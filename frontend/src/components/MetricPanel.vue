@@ -102,6 +102,6 @@ h4 {
   margin: 0 0 0.25rem;
 }
 .error {
-  color: #e06c75;
+  color: var(--danger);
 }
 </style>

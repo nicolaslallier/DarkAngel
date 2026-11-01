@@ -135,6 +135,6 @@ ul {
 }
 .error,
 .bad {
-  color: #e06c75;
+  color: var(--danger);
 }
 </style>
