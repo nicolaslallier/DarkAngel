@@ -93,7 +93,7 @@ async function leave() {
 
 <style scoped>
 .error {
-  color: #e06c75;
+  color: var(--danger);
 }
 
 input[readonly] {

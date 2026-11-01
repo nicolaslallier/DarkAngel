@@ -21,7 +21,7 @@ defineEmits<{ select: [id: string] }>()
   list-style: none;
   margin: 0;
   padding: 0.25rem;
-  border: 1px solid rgba(127, 127, 127, 0.4);
+  border: 1px solid var(--border);
   border-radius: 10px;
   background: Canvas;
   min-width: 260px;

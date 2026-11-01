@@ -122,7 +122,7 @@ h3 {
   border-radius: 6px;
 }
 .item.active {
-  background: rgba(127, 127, 127, 0.18);
+  background: var(--surface-2);
 }
 .item button {
   background: none;
@@ -155,7 +155,7 @@ h3 {
   display: flex;
   flex-direction: column;
   background: Canvas;
-  border: 1px solid rgba(127, 127, 127, 0.4);
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 .sr-only {

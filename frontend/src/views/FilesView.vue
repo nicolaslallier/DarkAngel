@@ -213,19 +213,6 @@ function formatSize(bytes: number) {
 </template>
 
 <style scoped>
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 1rem;
-}
-
-th,
-td {
-  padding: 0.4rem;
-  text-align: left;
-  border-bottom: 1px solid #444;
-}
-
 .toolbar,
 .actions {
   display: flex;
@@ -254,7 +241,7 @@ td {
 }
 
 .error {
-  color: #e06c75;
+  color: var(--danger);
 }
 
 .summary {

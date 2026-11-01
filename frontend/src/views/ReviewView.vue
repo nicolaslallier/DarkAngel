@@ -235,7 +235,7 @@ function label(invoice: Invoice): string {
 
 <style scoped>
 .error {
-  color: #e06c75;
+  color: var(--danger);
 }
 
 .layout {
@@ -256,7 +256,7 @@ function label(invoice: Invoice): string {
 iframe {
   width: 100%;
   height: 24rem;
-  border: 1px solid #8884;
+  border: 1px solid var(--border);
 }
 
 form {

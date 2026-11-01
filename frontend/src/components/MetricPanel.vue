@@ -85,7 +85,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <article class="panel">
+  <article class="card panel">
     <h4>{{ panel.title }}</h4>
     <p v-if="error" class="error" data-test="panel-error">{{ error }}</p>
     <p v-else-if="!series.length && !loading" data-test="no-data">No data</p>
@@ -102,6 +102,6 @@ h4 {
   margin: 0 0 0.25rem;
 }
 .error {
-  color: #e06c75;
+  color: var(--danger);
 }
 </style>

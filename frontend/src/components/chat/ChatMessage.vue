@@ -94,7 +94,7 @@ onUpdated(decorate)
 .msg.user {
   align-self: flex-end;
   max-width: 75%;
-  background: rgba(127, 127, 127, 0.18);
+  background: var(--surface-2);
   padding: 0.6rem 0.9rem;
   border-radius: 14px;
 }
@@ -133,7 +133,7 @@ onUpdated(decorate)
   font-style: italic;
 }
 .note.error {
-  color: #d33;
+  color: var(--danger);
   opacity: 1;
 }
 .md :deep(pre) {

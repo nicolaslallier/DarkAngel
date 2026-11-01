@@ -60,7 +60,7 @@ function onKey(e: KeyboardEvent) {
   max-width: 720px;
   width: 100%;
   margin: 0 auto;
-  border: 1px solid rgba(127, 127, 127, 0.4);
+  border: 1px solid var(--border);
   border-radius: 14px;
   padding: 0.6rem;
   box-sizing: border-box;

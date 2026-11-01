@@ -49,6 +49,6 @@ circle {
 }
 
 circle.flagged {
-  fill: #e06c75;
+  fill: var(--accent);
 }
 </style>
