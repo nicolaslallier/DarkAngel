@@ -91,7 +91,7 @@ h2 {
   font-size: 1.1rem;
   margin: 1.75rem 0 0.75rem;
 }
-article > h2:first-child {
+h2:first-child {
   margin-top: 0;
 }
 p {
@@ -145,8 +145,7 @@ textarea {
   color: var(--text-h);
 }
 
-button,
-label:has(> input[type='file']) {
+:where(button, label:has(> input[type='file'])) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -156,31 +155,27 @@ label:has(> input[type='file']) {
   border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
-  box-shadow: var(--shadow);
   transition: background 0.12s, border-color 0.12s;
 }
-button:hover:not(:disabled),
-label:has(> input[type='file']):hover {
+:where(button:hover:not(:disabled), label:has(> input[type='file']):hover) {
   background: var(--surface-2);
   border-color: var(--muted);
 }
-button[type='submit'] {
+:where(button[type='submit']) {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-contrast);
 }
-button[type='submit']:hover:not(:disabled) {
+:where(button[type='submit']:hover:not(:disabled)) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
-button:disabled {
+:where(button:disabled) {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-input:not([type='file']):not([type='checkbox']):not([type='radio']),
-select,
-textarea {
+:where(input:not([type='file'], [type='checkbox'], [type='radio']), select, textarea) {
   width: 100%;
   padding: 0.45rem 0.7rem;
   background: var(--surface);
@@ -191,17 +186,14 @@ input::placeholder,
 textarea::placeholder {
   color: var(--muted);
 }
-input:focus,
-select:focus,
-textarea:focus {
+:where(input, select, textarea):focus {
   outline: 2px solid var(--accent-bg);
   border-color: var(--accent);
 }
-textarea {
-  min-height: 5rem;
+:where(textarea) {
   resize: vertical;
 }
-input[type='search'] {
+:where(input[type='search']) {
   max-width: 22rem;
 }
 input[type='file'] {
@@ -234,22 +226,26 @@ form label {
 
 /* ---- Surfaces ---- */
 
-article {
+/* Opt-in: chat messages are <article>s too and must stay bare. */
+.card {
   padding: 1.1rem 1.25rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
 }
-article ul {
+
+.card ul {
   list-style: none;
   padding: 0;
 }
-article li {
+
+.card li {
   padding: 0.45rem 0;
   border-top: 1px solid var(--border);
 }
-article li:first-child {
+
+.card li:first-child {
   border-top: 0;
 }
 

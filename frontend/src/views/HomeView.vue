@@ -43,7 +43,7 @@ onMounted(async () => {
     </p>
 
     <div v-else-if="household.household" class="grid">
-      <article>
+      <article class="card">
         <h2>Backups</h2>
         <p v-if="infra.error" class="error" data-test="infra-error">{{ infra.error }}</p>
         <p v-else-if="infra.loading">Loading…</p>
@@ -64,7 +64,7 @@ onMounted(async () => {
         </ul>
       </article>
 
-      <article>
+      <article class="card">
         <h2>Infra</h2>
         <p v-if="infra.error" class="error">{{ infra.error }}</p>
         <p v-else-if="infra.loading">Loading…</p>
@@ -85,7 +85,7 @@ onMounted(async () => {
         </ul>
       </article>
 
-      <article>
+      <article class="card">
         <h2>Invoices</h2>
         <p v-if="invoices.error" class="error">{{ invoices.error }}</p>
         <p v-if="invoices.toReview.length">
