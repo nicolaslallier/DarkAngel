@@ -196,7 +196,10 @@ IMAGE_TAG="${IMAGE_TAG:-latest}"
 
 eid="${PORTAINER_ENDPOINT_ID:-$(api GET /endpoints | jq -r '[.[] | select(.Type == 1)][0].Id // empty')}"
 [ -n "$eid" ] || die "no local Docker environment found in Portainer"
-stack="$(api GET /stacks | jq -c --arg n "$STACK" 'first(.[] | select(.Name == $n)) // empty')"
+# Matched on the environment too: during a move between hosts the old stack of
+# the same name still exists on the other environment, and must not be the one
+# redeployed.
+stack="$(api GET /stacks | jq -c --arg n "$STACK" --argjson e "$eid" 'first(.[] | select(.Name == $n and .EndpointId == $e)) // empty')"
 sid=""
 [ -z "$stack" ] || sid="$(jq -r .Id <<<"$stack")"
 

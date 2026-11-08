@@ -15,17 +15,17 @@
 # The GitHub Actions deploy workflow pushes new images and then calls this
 # stack's webhook, which re-pulls the tag and recreates the services.
 #
-# There is no web server in this stack: the Infra stack's NGINX
-# (github.com/nicolaslallier/Infra) is the one that serves DarkAngel at
-# https://darkangel.infra.famillelallier.net. It reads the SPA's files from the
-# shared `darkangel-web` volume that web-assets fills, and proxies /api/ to
-# darkangel-api over infra-net -- see deploy/nginx/darkangel.conf for the vhost
-# to install there, including the two lines the Infra compose needs for the
-# volume.
+# The stack runs on the Mac Studio (Portainer environment set by the
+# PORTAINER_ENDPOINT_ID repository variable), away from the Infra stack on the
+# homelab. So it reaches nothing over infra-net. Postgres and Prometheus' read
+# API are published on the homelab's LAN address (INFRA_HOST) by the Infra
+# NGINX, on 5432 and 8480 (Infra: nginx/conf.d/darkangel-lan.conf). Keycloak
+# and SeaweedFS run on the Mac mini (AUTH_HOST, s3.famillelallier.net).
 #
-# Both the network and the volume are external, because the Infra stack is the
-# other end of each: `docker volume create darkangel-web` once (make up-local
-# does it), and the Infra stack owns infra-net.
+# `web` serves the SPA that web-assets copies into the darkangel-web volume and
+# proxies /api/ to darkangel-api, on port 8088 of the Mac Studio. TLS and the
+# public name stay on the homelab: the Infra NGINX vhost for
+# https://darkangel.infra.famillelallier.net proxies everything to it.
 
 services:
   darkangel-api:
@@ -41,17 +41,20 @@ services:
       # (https://keycloak.famillelallier.net/realms/ea); only the signing keys
       # are read from Keycloak directly over infra-net, so the container needs
       # no copy of the Infra CA to trust the public hostname.
-      DARKANGEL_AUTH_JWKS_URL: http://keycloak:8080/realms/ea/protocol/openid-connect/certs
+      # Plain HTTP on the LAN, so no copy of the Infra CA is needed either.
+      DARKANGEL_AUTH_JWKS_URL: http://${AUTH_HOST:-192.168.2.67}:8080/realms/ea/protocol/openid-connect/certs
       # Home files go to the Infra SeaweedFS (`s3:8333` on infra-net), bucket
       # darkangel-files as identity darkangel -- both made by Infra's
       # `make s3-provision app=darkangel bucket=darkangel-files versioned=1`.
       # S3_SECRET_KEY is a stack variable `make up` copies from .portainer.env.
+      DARKANGEL_S3_ENDPOINT: s3.famillelallier.net:8333
       DARKANGEL_S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       # Metadata lives in the Infra PostgreSQL (`postgres:5432` on infra-net),
       # database darkangel as role darkangel -- both made by `make postgres`.
       # POSTGRES_PASSWORD is a stack variable `make up` copies from
       # .portainer.env, the same way S3_SECRET_KEY arrives.
-      DARKANGEL_DATABASE_URL: postgresql+psycopg://darkangel:${POSTGRES_PASSWORD:-}@postgres:5432/darkangel
+      DARKANGEL_DATABASE_URL: postgresql+psycopg://darkangel:${POSTGRES_PASSWORD:-}@${INFRA_HOST:-192.168.2.10}:5432/darkangel
+      DARKANGEL_PROMETHEUS_URL: http://${INFRA_HOST:-192.168.2.10}:8480
       # Post-upload AI summaries (backend/app/summary.py) by the Ollama on the
       # Mac at 192.168.2.35 (Ollama.app, listening on *:11434). Not a secret,
       # so no stack variable; empty turns summaries off, and an unreachable
@@ -66,12 +69,6 @@ services:
       DARKANGEL_LLM_API_KEY: ${LLM_API_KEY:-}
     expose:
       - "8000"
-    # Named for infra-net, which every app on this host shares: a plain
-    # `backend` alias would collide with the next stack's. The API router is
-    # mounted at /api (backend/app/api/router.py), so the vhost passes the
-    # prefix straight through.
-    networks:
-      - infra-net
 
   # Polls the Portainer instances and the portainer-backups bucket every five
   # minutes and writes what it saw to PostgreSQL; the dashboard reads that. It
@@ -86,11 +83,10 @@ services:
     healthcheck:
       disable: true
     environment:
-      DARKANGEL_DATABASE_URL: postgresql+psycopg://darkangel:${POSTGRES_PASSWORD:-}@postgres:5432/darkangel
+      DARKANGEL_DATABASE_URL: postgresql+psycopg://darkangel:${POSTGRES_PASSWORD:-}@${INFRA_HOST:-192.168.2.10}:5432/darkangel
       DARKANGEL_PORTAINER_INSTANCES: ${PORTAINER_INSTANCES:-[]}
+      DARKANGEL_BACKUP_S3_ENDPOINT: s3.famillelallier.net:8333
       DARKANGEL_BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
-    networks:
-      - infra-net
 
   web-assets:
     image: ghcr.io/${IMAGE_OWNER:-nicolaslallier}/darkangel-frontend:${IMAGE_TAG:-latest}
@@ -103,13 +99,69 @@ services:
     volumes:
       - darkangel-web:/srv/darkangel
 
-networks:
-  # Created by the Infra stack; `make up-local` creates it if it is missing.
-  infra-net:
-    external: true
+  # The stack's only web server: the SPA from darkangel-web, /api/ to
+  # darkangel-api. Plain HTTP on the LAN; the homelab's Infra NGINX terminates
+  # TLS for the public name and proxies here. The config is inline because a
+  # Portainer git stack cannot bind-mount files from the repository.
+  web:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    depends_on:
+      - darkangel-api
+    ports:
+      - "8088:80"
+    volumes:
+      - darkangel-web:/srv/darkangel:ro
+    configs:
+      - source: web-conf
+        target: /etc/nginx/conf.d/default.conf
+
+configs:
+  web-conf:
+    content: |
+      server {
+        listen 80;
+        # Docker's embedded DNS, resolved per request so nginx starts even
+        # while darkangel-api is still coming up.
+        resolver 127.0.0.11 valid=10s;
+
+        # web-assets swaps current/ into place, so this is never half-written.
+        root /srv/darkangel/current;
+        index index.html;
+
+        gzip on;
+        gzip_types text/css application/javascript application/json image/svg+xml;
+        gzip_min_length 1024;
+
+        location /api/ {
+          # Uploads up to the API's max_upload_bytes (5 GiB), streamed.
+          client_max_body_size 5g;
+          proxy_request_buffering off;
+          proxy_read_timeout 1h;
+          proxy_send_timeout 1h;
+          set $$upstream http://darkangel-api:8000;
+          proxy_pass $$upstream;
+          proxy_http_version 1.1;
+          proxy_set_header Host $$host;
+          # The homelab NGINX in front sets these; pass them through.
+          proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $$http_x_forwarded_proto;
+          proxy_set_header X-Real-IP $$http_x_real_ip;
+          proxy_set_header Upgrade $$http_upgrade;
+          proxy_set_header Connection "upgrade";
+        }
+
+        # Hashed Vite assets are immutable.
+        location /assets/ {
+          add_header Cache-Control "public, max-age=31536000, immutable";
+        }
+
+        # History-mode routing: unknown paths fall through to the SPA shell.
+        location / {
+          try_files $$uri $$uri/ /index.html;
+        }
+      }
 
 volumes:
-  # Shared with the Infra stack's NGINX, which mounts it read-only at
-  # /srv/darkangel and serves /srv/darkangel/current.
+  # Filled by web-assets, read by web. Owned by this stack.
   darkangel-web:
-    external: true

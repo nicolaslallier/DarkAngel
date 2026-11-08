@@ -229,10 +229,10 @@ release: clean build ## Collect the release artifacts under dist/
 # the pull off this machine, where Docker Desktop's credential helper can fail
 # with "A specified logon session does not exist".
 #
-# The stack runs no web server and publishes no host port: the Infra stack's
-# NGINX serves the SPA and the API at https://darkangel.infra.famillelallier.net
-# (deploy/nginx/darkangel.conf). The `darkangel-web` volume it reads is shared,
-# so it has to exist on the host: `docker volume create darkangel-web`.
+# The stack runs on the Mac Studio and serves the SPA and the API on :8088; the
+# homelab's Infra NGINX terminates TLS for https://darkangel.infra.famillelallier.net
+# and proxies to it (deploy/nginx/darkangel.conf). PORTAINER_ENDPOINT_ID picks
+# the Portainer environment.
 #
 # Overrides: IMAGE_OWNER, IMAGE_TAG (the stack's variables), and
 # PORTAINER_URL / PORTAINER_NETWORK / PORTAINER_REF for an unusual setup.
@@ -355,17 +355,13 @@ runner-shell: check-runner-env ## Open a shell in the running CI runner
 ## === stack (local) ===
 # The same stack file run by the local docker daemon, for a host with no
 # Portainer. `up-local` pulls from GHCR itself, so it needs a working
-# `docker login ghcr.io` on this machine. The stack file expects the shared
-# `infra-net` network and `darkangel-web` volume to exist (the Infra stack is
-# the other end of both), so up-local creates either when it does not -- on a
-# host with no Infra NGINX nothing then serves the files the volume collects.
+# `docker login ghcr.io` on this machine. The stack reaches the Infra services
+# on the homelab's LAN address and serves itself on :8088 (see the stack file).
 
 STACK := deploy/portainer-stack.yml
 COMPOSE ?= docker compose -f $(STACK) -p darkangel
 
 up-local: ## Start the stack with the local docker daemon (no Portainer)
-	@docker network inspect infra-net >/dev/null 2>&1 || docker network create infra-net
-	@docker volume inspect darkangel-web >/dev/null 2>&1 || docker volume create darkangel-web
 	$(COMPOSE) up -d --pull always
 
 down-local: ## Stop the locally-run stack
