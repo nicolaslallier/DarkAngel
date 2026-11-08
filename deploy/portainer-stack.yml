@@ -17,10 +17,10 @@
 #
 # The stack runs on the Mac Studio (Portainer environment set by the
 # PORTAINER_ENDPOINT_ID repository variable), away from the Infra stack on the
-# homelab. So it reaches nothing over infra-net: the Infra services it needs
-# are published on the homelab's LAN address (INFRA_HOST) by the Infra NGINX --
-# Postgres on 5432, SeaweedFS on 8333, and Keycloak's JWKS plus Prometheus'
-# read API on 8480 (Infra: nginx/conf.d/darkangel-lan.conf).
+# homelab. So it reaches nothing over infra-net. Postgres and Prometheus' read
+# API are published on the homelab's LAN address (INFRA_HOST) by the Infra
+# NGINX, on 5432 and 8480 (Infra: nginx/conf.d/darkangel-lan.conf). Keycloak
+# and SeaweedFS run on the Mac mini (AUTH_HOST, s3.famillelallier.net).
 #
 # `web` serves the SPA that web-assets copies into the darkangel-web volume and
 # proxies /api/ to darkangel-api, on port 8088 of the Mac Studio. TLS and the
@@ -42,12 +42,12 @@ services:
       # are read from Keycloak directly over infra-net, so the container needs
       # no copy of the Infra CA to trust the public hostname.
       # Plain HTTP on the LAN, so no copy of the Infra CA is needed either.
-      DARKANGEL_AUTH_JWKS_URL: http://${INFRA_HOST:-192.168.2.10}:8480/realms/ea/protocol/openid-connect/certs
+      DARKANGEL_AUTH_JWKS_URL: http://${AUTH_HOST:-192.168.2.67}:8080/realms/ea/protocol/openid-connect/certs
       # Home files go to the Infra SeaweedFS (`s3:8333` on infra-net), bucket
       # darkangel-files as identity darkangel -- both made by Infra's
       # `make s3-provision app=darkangel bucket=darkangel-files versioned=1`.
       # S3_SECRET_KEY is a stack variable `make up` copies from .portainer.env.
-      DARKANGEL_S3_ENDPOINT: ${INFRA_HOST:-192.168.2.10}:8333
+      DARKANGEL_S3_ENDPOINT: s3.famillelallier.net:8333
       DARKANGEL_S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       # Metadata lives in the Infra PostgreSQL (`postgres:5432` on infra-net),
       # database darkangel as role darkangel -- both made by `make postgres`.
@@ -85,7 +85,7 @@ services:
     environment:
       DARKANGEL_DATABASE_URL: postgresql+psycopg://darkangel:${POSTGRES_PASSWORD:-}@${INFRA_HOST:-192.168.2.10}:5432/darkangel
       DARKANGEL_PORTAINER_INSTANCES: ${PORTAINER_INSTANCES:-[]}
-      DARKANGEL_BACKUP_S3_ENDPOINT: ${INFRA_HOST:-192.168.2.10}:8333
+      DARKANGEL_BACKUP_S3_ENDPOINT: s3.famillelallier.net:8333
       DARKANGEL_BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
 
   web-assets:
