@@ -119,7 +119,7 @@ jobs:
     # A GitHub-hosted runner reaches Portainer at its public origin. Where
     # there is no public ingress to it, set the DEPLOY_RUNNER repository
     # variable to 'darkangel' -- the label the self-hosted runner registers
-    # with (docker-compose.runner.yml, `make runner-up`) -- and this job moves
+    # with (Infra's runners stack, runner-darkangel) -- and this job moves
     # onto the LAN, where it reaches Portainer over infra-net instead.
     runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
     steps:
