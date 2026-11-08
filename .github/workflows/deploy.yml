@@ -160,6 +160,9 @@ jobs:
           PORTAINER_URL: ${{ vars.PORTAINER_URL }}
           PORTAINER_INSECURE: ${{ vars.PORTAINER_INSECURE }}
           PORTAINER_DIRECT: ${{ vars.PORTAINER_DIRECT }}
+          # The Portainer environment the stack runs on (the Mac Studio's).
+          # Unset, the script picks the first local Docker environment.
+          PORTAINER_ENDPOINT_ID: ${{ vars.PORTAINER_ENDPOINT_ID }}
           DEPLOY_RUNNER: ${{ vars.DEPLOY_RUNNER }}
           # The stack file to deploy is read from GitHub at this ref, not from
           # this checkout, so it tracks whatever triggered the run.
